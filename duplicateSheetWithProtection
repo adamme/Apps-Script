@@ -1,0 +1,30 @@
+function onOpen() 
+{
+  var spreadsheet = SpreadsheetApp.getActive();
+  var menuItems = 
+  [
+    {name: 'Create New Sheet', functionName: 'duplicateSheetWithProtections'},
+    {name: 'Save To PDF', functionName: 'generatePDF'},
+  ];
+  spreadsheet.addMenu('ITOPS-Tools', menuItems);
+}
+
+function duplicateSheetWithProtections() 
+{
+  var ss = SpreadsheetApp.getActiveSpreadsheet(); 
+  sheet = ss.getSheetByName('[Template]');
+  sheet2 = sheet.copyTo(ss).setName('NEW COPY'); 
+  var protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  for (var i = 0; i < protections.length; i++) {
+    var p = protections[i];
+    var rangeNotation = p.getRange().getA1Notation();
+    var p2 = sheet2.getRange(rangeNotation).protect();
+    p2.setDescription(p.getDescription());
+    p2.setWarningOnly(p.isWarningOnly());
+    if (!p.isWarningOnly()) {
+      // p2.removeEditors(p2.getEditors());
+      p2.addEditors(p.getEditors());
+      // p2.setDomainEdit(p.canDomainEdit()); //  only if using an Apps domain 
+   }
+  }
+} 
