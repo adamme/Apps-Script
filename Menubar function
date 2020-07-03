@@ -1,0 +1,10 @@
+function onOpen() 
+{
+  var spreadsheet = SpreadsheetApp.getActive();
+  var menuItems = 
+  [
+    {name: 'Create New Sheet', functionName: 'duplicateSheetWithProtections'},
+    {name: 'Save To PDF', functionName: 'generatePDF'},
+  ];
+  spreadsheet.addMenu('My-Tools', menuItems);
+}
