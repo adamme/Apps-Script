@@ -1,0 +1,37 @@
+function generatePDF() 
+{
+    var originalSpreadsheet = SpreadsheetApp.getActive();
+    
+// Get Original Sheet details
+    var sourcesheet = originalSpreadsheet.getActiveSheet();
+    var sourcerange = sourcesheet.getRange('A1:AG59');
+    var sourcevalues = sourcerange.getValues();
+
+// Create a copy of the Original Sheet
+    var newSpreadsheet = SpreadsheetApp.create("Spreadsheet to export");
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var projectname = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = sourcesheet.copyTo(newSpreadsheet);
+    var destrange = sheet.getRange('A1:AG59');
+    destrange.setValues(sourcevalues);
+    newSpreadsheet.getSheetByName('Sheet1').activate();
+    newSpreadsheet.deleteActiveSheet();
+
+// Get copied file ID
+    var pdf = DriveApp.getFileById(newSpreadsheet.getId());
+    
+// Get date range for title of PDF
+    var getDateStart = sheet.getRange('A1');
+    var dateStart = getDateStart.getValue();
+    var dateStartFormat = Utilities.formatDate(dateStart, "GMT-7", "MM-dd-yyyy")
+    
+// Create PDF of copied file ID
+    var theBlob = pdf.getBlob().getAs('application/pdf').setName("go/nam: "+ dateStartFormat);
+    
+// Store the new PDF file into the IT Team Drive (IT Team Drive > IT OPs > HelpDesk Schedule - Archive
+    var folderID = "DriveFileUrlIdHere";
+    var folder = DriveApp.getFolderById(folderID);
+    var newFile = folder.createFile(theBlob);
+
+    DriveApp.getFileById(newSpreadsheet.getId()).setTrashed(true); 
+}
