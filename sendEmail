@@ -1,0 +1,18 @@
+// Send email from you, to defined email addresses, of the HTML Body template defined
+
+//EmailTemplate is an HTML file in the same project folder
+
+function sendEmail()
+{
+  var htmlBody = HtmlService.createHtmlOutputFromFile('EmailTemplate').getContent();
+  var aliases = GmailApp.getAliases();
+  var alias = aliases.find(alias => alias === "alias@domain.com")
+
+  GmailApp.sendEmail('sendToPerson@domain.com', 'Email Subject', null, 
+  {
+    htmlBody:htmlBody,
+    from:alias,
+    name: 'Serious Sender'
+  });
+
+}
