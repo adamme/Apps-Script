@@ -1,0 +1,44 @@
+/* 
+//https://developers.google.com/apps-script/reference/calendar
+
+1. open https://script.google.com/home
+2. create a new project
+3. paste the code attached in the thread, edit the condition to your needs, save
+4. run a test execution (confirm access permission)
+5. go back to https://script.google.com/home
+6. clock the 3 dots on the right side of the project > Triggers
+7. Add Trigger
+8. event source: from calendar - calendar details: calendar updated
+*/
+
+function ColorEvents() 
+{
+  var today = new Date();
+  var nextweek = new Date();
+  nextweek.setDate(nextweek.getDate() + 14);
+  Logger.log(today + " " + nextweek);
+  var calendars = CalendarApp.getCalendarsByName("email.address@domain.com");
+  Logger.log("found number of calendars: " + calendars.length);
+  for (var i=0; i<calendars.length; i++) 
+  {
+    var calendar = calendars[i];
+    var events = calendar.getEvents(today, nextweek);
+    for (var j=0; j<events.length; j++) 
+    {
+      var e = events[j];
+      var title = e.getTitle();
+      if (title.startsWith("Block") || title.startsWith("Busy") || title.startsWith("OOO") || title.startsWith("Lunch") || title.startsWith("No Meeting") || title.startsWith("Tickets and Emails"))
+      {
+        e.setColor(CalendarApp.EventColor.GRAY);
+      } 
+      else if (title.startsWith("Firstname /") || title.startsWith("Firstname/") || title.startsWith("Firstname|") || title.startsWith("Firstname |"))
+      {
+        e.setColor(CalendarApp.EventColor.PALE_GREEN);
+      }
+      else if (title.endsWith("/ Firstname") || title.endsWith("/Firstname") || title.endsWith("|Firstname") || title.endsWith("| Firstname") || title.endsWith("1:1"))
+      {
+        e.setColor(CalendarApp.EventColor.PALE_GREEN);
+      } 
+    }
+  }
+}
