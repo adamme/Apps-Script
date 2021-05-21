@@ -1,3 +1,5 @@
+// sheet rows: Timestamp	Email Address	First Name	Last Name	Managers Email	Building You Sit At	Current Best Contact Method	Cruise Asset(s) Lost/Stolen	Specifics About Lost/Stolen Items	Location Items Stolen or Last Seen	Lost or Stolen	Badge Lost/Stolen	Badge Only			emailSent		
+
 function sendLostEmail() {
   var sheet = SpreadsheetApp.getActive().getSheetByName("Form Responses 1")
   var dataRange = sheet.getDataRange();
