@@ -90,7 +90,7 @@ function importWorkdayReport() {
           "muteHttpExceptions": true
         };
       
-        var webhookUrl = "https://hooks.slack.com/services/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";
+        var webhookUrl = "https://hooks.slack.com/services/webhooklink";
         UrlFetchApp.fetch(webhookUrl, options);
 
         return
@@ -124,7 +124,7 @@ function importWorkdayReport() {
       "muteHttpExceptions": true
     };
    
-    var webhookUrl = "http://webhook.com";
+    var webhookUrl = "https://hooks.slack.com/services/webhooklink";
     UrlFetchApp.fetch(webhookUrl, options);
     }
 
