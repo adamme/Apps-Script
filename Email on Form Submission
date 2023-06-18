@@ -6,6 +6,83 @@ function sendProblemFromForm() {
   const formResponses = form.getResponses();
   const latestFR = formResponses[formResponses.length - 1];
 
+  // Get the values for fields
+  const itemResponses = latestFR.getItemResponses();
+  let employeeName = "";
+  let shippingAddress = "";
+  let phoneNumber = "";
+  let monitor = "";
+  let headphones = "";
+  let keyboard = "";
+  let mouse = "";
+
+  // Retrieve submitter's email address
+  const emailAddress = latestFR.getRespondentEmail();
+
+  for (const response of itemResponses) {
+    const responseValue = response.getResponse();
+    const responseItem = response.getItem().getTitle();
+
+    switch (responseItem) {
+      case "Full Name":
+        employeeName = responseValue;
+        break;
+      case "Full Shipping Address":
+        shippingAddress = responseValue;
+        break;
+      case "Phone Number":
+        phoneNumber = responseValue;
+        break;
+      case "Monitor":
+        monitor = responseValue;
+        break;
+      case "Earbuds and Headphones":
+        headphones = responseValue;
+        break;
+      case "Keyboard":
+        keyboard = responseValue;
+        break;
+      case "Mouse":
+        mouse = responseValue;
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Create email
+  const emailSubject = 'Company Employee Hardware Order for: ' + employeeName;
+  const emailTo = "email@domain.com";
+  const emailBody =
+  "<b>Email Address:</b> " + emailAddress + "<br/>" +
+  "<b>Name:</b> " + employeeName + "<br/>" +
+  "<b>Phone:</b> " + phoneNumber + "<br/>" +
+  "<b>Shipping Address:</b> " + shippingAddress + "<br/> <br/>" +
+  '<b>Equipment Requested:</b><br>' +
+  (monitor ? monitor + '<br/>' : '') +
+  (headphones ? headphones + '<br/>' : '') +
+  (keyboard ? keyboard + '<br/>' : '') +
+  (mouse ? mouse + '<br/>' : '');
+
+// Send email
+  MailApp.sendEmail(emailTo, emailSubject, '', {
+  htmlBody: emailBody
+});
+}
+
+
+
+
+
+
+******-----ALTERNATIVE SOLUTION-----******
+//** Alternative that Works only if no field is left unsubmitted
+function sendProblemFromForm() {
+  // Get submitted problem and room from form
+  const form = FormApp.getActiveForm();
+  const formResponses = form.getResponses();
+  const latestFR = formResponses[formResponses.length - 1];
+
   // Get submitter's email
   //var emailAddress = formResponses[i].getRespondentEmail();
 
@@ -41,3 +118,8 @@ function sendProblemFromForm() {
     htmlBody: emailBody
   });
 }
+
+^^^^^
+**// Works only if no field is left unsubmitted
+
+
