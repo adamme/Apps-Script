@@ -78,3 +78,61 @@ function sendFormSubmit() {
     }
   );
 }
+
+
+
+
+
+
+
+
+
+
+******-----ALTERNATIVE SOLUTION-----******
+//** Alternative that Works only if no field is left unsubmitted
+function sendProblemFromForm() {
+  // Get submitted problem and room from form
+  const form = FormApp.getActiveForm();
+  const formResponses = form.getResponses();
+  const latestFR = formResponses[formResponses.length - 1];
+
+  // Get submitter's email
+  //var emailAddress = formResponses[i].getRespondentEmail();
+
+  // Get the values for fields
+  const itemResponses = latestFR.getItemResponses();
+  const employeeName = itemResponses[0].getResponse();
+  const shippingAddress = itemResponses[1].getResponse();
+  const phoneNumber = itemResponses[2].getResponse();
+  const monitor = itemResponses[3].getResponse();
+  const headphones = itemResponses[4].getResponse();
+  const keyboard = itemResponses[5].getResponse();
+  const mouse = itemResponses[6].getResponse();
+
+
+  // Create email
+  const emailSubject = 'Company Employee Hardware Order for: ' + employeeName;
+  const emailTo = "email@domain.com";
+  const emailBody =
+    "Email Address: " + employeeName + "<br/>" +
+    "Name: " + employeeName + "<br/>" +
+    "Phone: " + phoneNumber + "<br/>" +
+    "Shipping Address: " + shippingAddress + "<br/> <br/>" +
+    '<b>Equipment Requested:</b><br>' + 
+    monitor + '<br/>' + 
+    headphones + '<br>'+
+    keyboard + '<br>' +
+    mouse + '<br>';
+
+
+
+  // Send email
+  MailApp.sendEmail(emailTo, emailSubject, '', {
+    htmlBody: emailBody
+  });
+}
+
+^^^^^
+**// Works only if no field is left unsubmitted
+
+
