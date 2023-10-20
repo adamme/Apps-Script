@@ -51,8 +51,8 @@ function sendFormSubmit() {
   }
 
   // Create email
-  const emailSubject = 'Stellar Health Employee Hardware Order for: ' + employeeName;
-  const emailTo = "adamme.mak@stellar.health";
+  const emailSubject = 'Company Employee Hardware Order for: ' + employeeName;
+  const emailTo = "email.recipient@domain.com";
   const emailBody =
     "<b>Email Address:</b> " + emailAddress + "<br/>" +
     "<b>Name:</b> " + employeeName + "<br/>" +
@@ -74,7 +74,7 @@ function sendFormSubmit() {
     {
       htmlBody: emailBody,
       from: sendAlias[0],
-      name: 'Stellar IT Notify'
+      name: 'Company IT Notify'
     }
   );
 }
