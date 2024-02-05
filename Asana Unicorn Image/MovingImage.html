@@ -27,3 +27,68 @@
     </script>
   </body>
 </html>
+
+
+
+MovingImage2.html
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      #movingImage {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        animation: moveImage 1.25s linear forwards;
+        z-index: 9999; /* Ensure the image appears on top */
+      }
+      
+      @keyframes moveImage {
+        0% { left: -50%; opacity: 0; }
+        50% { opacity: 1; }
+        100% { left: 150%; opacity: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <img id="movingImage" src="https://blog.asana.com/wp-content/post-images/unicorn-celebration-for-pride.png" alt="Way to Go!">
+    <script>
+      // Function to close the dialog box when the animation is complete
+      setTimeout(google.script.host.close, 1250); // Close dialog after 5 seconds
+    </script>
+  </body>
+</html>
+
+
+MovingImage3.html
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      #movingImage {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        animation: moveImage 1.25s linear forwards;
+        z-index: 9999; /* Ensure the image appears on top */
+      }
+      
+      @keyframes moveImage {
+        0% { left: -50%; opacity: 0; }
+        50% { opacity: 1; }
+        100% { left: 150%; opacity: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <img id="movingImage" src="https://i.pinimg.com/736x/12/d0/a5/12d0a5c7520ca0e4def1f8fca0836d27.jpg" alt="Way to Go!">
+    <script>
+      // Function to close the dialog box when the animation is complete
+      setTimeout(google.script.host.close, 1250); // Close dialog after 5 seconds
+    </script>
+  </body>
+</html>
