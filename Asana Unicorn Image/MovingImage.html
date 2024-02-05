@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      #movingImage {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        animation: moveImage 1.25s linear forwards;
+        z-index: 9999; /* Ensure the image appears on top */
+      }
+      
+      @keyframes moveImage {
+        0% { left: -50%; opacity: 0; }
+        50% { opacity: 1; }
+        100% { left: 150%; opacity: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <img id="movingImage" src="https://global.discourse-cdn.com/asana/original/3X/5/f/5feb47138a9b017bb29c41e25f1c35e2ad5f09dc.gif" alt="Way to Go!">
+    <script>
+      // Function to close the dialog box when the animation is complete
+      setTimeout(google.script.host.close, 1250); // Close dialog after 5 seconds
+    </script>
+  </body>
+</html>
