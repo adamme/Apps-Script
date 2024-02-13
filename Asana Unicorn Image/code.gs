@@ -100,3 +100,72 @@ function startMovingImage3() {
       .setHeight(500);
   SpreadsheetApp.getUi().showModelessDialog(htmlOutput, 'Amazing!');
 }
+
+
+
+
+/* filters, cuts row and adds to Closed tab, random celebration
+
+function onEdit(e) {
+  var sheet = e && e.source ? e.source.getActiveSheet() : SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+  if (e && e.range) {
+    var range = e.range;
+
+    // Handle checkbox selection in column J
+    if (range.isChecked() && range.getValue() === true && range.getColumn() == 10) {  // Check for column J
+
+      // Randomly choose one of the three functions
+      var randomFunction = Math.floor(Math.random() * 3); // Generate a random number between 0 and 2
+
+      switch (randomFunction) {
+        case 0:
+          startMovingImage(range.getRow());
+          break;
+        case 1:
+          startMovingImage2(range.getRow());
+          break;
+        case 2:
+          startMovingImage3(range.getRow());
+          break;
+      }
+
+      // Cut the row
+      var rowToCut = range.getRow();
+      var rowData = sheet.getRange(rowToCut, 1, 1, sheet.getLastColumn()).getValues()[0]; // Get the row data
+      sheet.deleteRow(rowToCut);
+
+      // Delayed row deletion with 5 second delay
+      Utilities.sleep(2000); // Delay for 2 seconds
+
+      // Insert the row into the "Closed" tab at row 2
+      var closedSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Closed");
+      if (!closedSheet) {
+        closedSheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet("Closed");
+      }
+      
+      // Get active user's name
+      var activeUser = Session.getActiveUser().getEmail();
+
+      // Append active user's name to the row data
+      rowData.push(activeUser);
+
+      closedSheet.insertRowBefore(2); // Insert a new row at row 2
+      var closedRange = closedSheet.getRange(2, 1, 1, rowData.length);
+      closedRange.setValues([rowData]); // Set the row data in row 2 of "Closed"
+
+      // Add current date to column L (12th column) in the "Closed" tab
+      var currentDate = new Date();
+      var formattedDate = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), "MM/dd/yyyy");
+      closedSheet.getRange(2, 12).setValue(formattedDate);
+    }
+
+    // Handle sorting (unchanged)
+    else if (range.getColumn() == 2) {
+      var rangeToSort = sheet.getRange("A2:Z100"); // Adjust range if needed
+      rangeToSort.sort({column: 2, ascending: true});
+    }
+  }
+}
+
+*/
