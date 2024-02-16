@@ -1,5 +1,7 @@
 //Resource: https://medium.com/@bazroberts/apps-script-basics-using-form-responses-b34aa668434f
 
+//The Apps Script is tied to the Form, not the response sheet
+
 function sendFormSubmit() {
   // Get submitted problem and room from form
   const form = FormApp.getActiveForm();
