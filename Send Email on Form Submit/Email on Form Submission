@@ -64,7 +64,7 @@ function sendFormSubmit() {
     (keyboard ? keyboard + '<br/>' : '') +
     (mouse ? mouse + '<br/>' : '');
 
-  // Set the alias email address
+  // Set the alias email address. [0] is the index of the first alias in the list of found aliases
   var sendAlias = GmailApp.getAliases();
 
   GmailApp.sendEmail(
