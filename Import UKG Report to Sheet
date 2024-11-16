@@ -1,1 +1,281 @@
+// TL;DR of the steps to take to make this work:
+// 1. Get the login/api token using uKG_fetch_API_ReturnlogonSecret()
+// 2. Pipe that token into a crafted API request that executes the report and generates it in CSV format (executeReport() function)
+// 3. Pipe that token again into a crafted API request that retrieves the report we just executed (retrieveReport() function)
+// 4. Take the output of retrieveReport() and dump it out to the spreadsheet (maybe create a function called dumpReportToSheet())
 
+
+// Create menu item to manually run sync
+function onOpen() 
+{
+  var spreadsheet = SpreadsheetApp.getActive();
+  var menuItems = 
+  [
+    {name: 'Update Report', functionName: 'executeAndDumpReport'},
+  ];
+  spreadsheet.addMenu('Stellar-Tools', menuItems);
+}
+
+
+// Define variables
+const ukgWebServicesBaseURL = 'https://yourserver.ukg.net';
+const adminUsername = 'RassReportServiceAccountName';
+const adminPassword = 'RaasReportServiceAccountPassword';
+const userApiKey = 'UserAPIkey';
+const customerApiKey = 'CustomerAPIkey';
+
+// Ampersands must be encoded as &amp; in XML payloads if you want a literal ampersand character
+const reportPath = "/content/folder/Long-Folder-Path-Here; Report ID']";
+const reportID = 'RaasReportID'
+
+// how to find your google sheet id?  copy the url of your google sheet.
+// https://docs.google.com/spreadsheets/d/this is the ID you need from the link/edit#gid=0
+const spreadsheetId = "SpreadsheetIDhere";
+const sheetName = "SheetTabNameHere";
+
+
+async function executeAndDumpReport() {
+    Logger.log("Task Started")
+    Logger.log("Getting UKG Log On Secret...")
+    var loginData = await uKG_fetch_API_ReturnlogonSecret();
+
+    if (loginData.responseCode == 200) {
+        Logger.log("LogIn Sucessfully...")
+
+        // Run executeReport
+        Logger.log("Running executeReport");
+        var reportData = executeReport(loginData);
+
+        if (reportData.responseCode == 200) {
+          Logger.log("Ran executeReport Successfully...");
+
+          var reportKey = reportData.reportKey;
+
+          // Run retrieveReport
+          Logger.log("Running retrieveReport");
+          reportContentData = retrieveReport(reportKey);
+
+          if (reportContentData.responseCode == 200) {
+          Logger.log("Ran retrieveReport Successfully...");
+
+          //save report result to spreadsheet.
+          Logger.log("Parsing Data to Spreadsheet...")
+          dumpReportToSheet(reportContentData.reportData, spreadsheetId, sheetName);
+
+          uKG_log_off(loginData);
+  
+          Logger.log('Task Completed');
+
+          } else {
+            Logger.log("retrieveReport returned a non-200 response code, check above logs for details");
+          }
+
+        } else {
+          Logger.log("executeReport returned a non-200 response code, check above logs for details");
+        }
+    } else {
+      Logger.log("Login failed, check above logs for details");
+    }
+}
+
+function uKG_fetch_API_ReturnlogonSecret() {
+    var serviceUrl = `${ukgWebServicesBaseURL}/services/BiDataService`;
+    var xml = `
+    <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+        <s:Header>
+            <a:Action s:mustUnderstand="1">http://www.ultipro.com/dataservices/bidata/2/IBIDataService/LogOn</a:Action>
+            <a:To s:mustUnderstand="1">${serviceUrl}</a:To>
+        </s:Header>  
+        <s:Body> 
+            <LogOn xmlns="http://www.ultipro.com/dataservices/bidata/2"> 
+                <logOnRequest xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+                <UserName>${adminUsername}</UserName>
+                <Password>${adminPassword}</Password>
+                <ClientAccessKey>${customerApiKey}</ClientAccessKey>
+                <UserAccessKey>${userApiKey}</UserAccessKey>
+                </logOnRequest>
+            </LogOn>
+        </s:Body>
+    </s:Envelope>`;
+    
+    var options = {
+        method: 'POST',
+        payload: xml,
+        contentType: 'application/soap+xml; charset=utf-8',
+        muteHttpExceptions: true,
+        headers: {
+            "soapAction": "http://www.ultipro.com/dataservices/bidata/2/IBIDataService/LogOn"
+        }
+    }
+    var response = UrlFetchApp.fetch(serviceUrl, options);
+    var responseTEXT = response.getContentText();
+    var startindex = responseTEXT.search('<ServiceId>');
+    var endindex = responseTEXT.search('</InstanceKey>');
+    var logonSecret = responseTEXT.slice(startindex, endindex + '</InstanceKey>'.length);
+    var data = {
+        responseCode: response.getResponseCode(),
+        logonSecret: logonSecret,
+    }
+    // debug
+    //Logger.log(logonSecret)
+    return data
+}
+
+// End the session (invalidate the token)
+function uKG_log_off(loginData) {
+  var serviceUrl = `${ukgWebServicesBaseURL}/services/BiDataService`;
+  var xml = `
+  <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing"> 
+    <s:Header> 
+    <a:Action s:mustUnderstand="1">http://www.ultipro.com/dataservices/bidata/2/IBIDataService/LogOff</a:Action>  
+      <a:To s:mustUnderstand="1">${serviceUrl}</a:To>  
+    </s:Header> 
+    <s:Body> 
+      <LogOff xmlns="http://www.ultipro.com/dataservices/bidata/2"> 
+        <context xmlns:i="http://www.w3.org/2001/XMLSchema-instance"> 
+          ${loginData.logonSecret}  
+        </context> 
+      </LogOff> 
+    </s:Body> 
+  </s:Envelope>`;
+  
+  var options = {
+        method: 'POST',
+        payload: xml,
+        contentType: 'application/soap+xml; charset=utf-8',
+        muteHttpExceptions: true,
+        headers: {
+            "soapAction": "http://www.ultipro.com/dataservices/bidata/2/IBIDataService/LogOff"
+        }
+    }
+
+  var response = UrlFetchApp.fetch(serviceUrl, options);
+  console.log("LogOff: ", response.getResponseCode());
+}
+
+// Function to execute the report
+function executeReport(loginData) {
+  var serviceUrl = `${ukgWebServicesBaseURL}/services/BiDataService`;
+  var xml = `
+  <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+    <s:Header>
+      <a:Action s:mustUnderstand="1">http://www.ultipro.com/dataservices/bidata/2/IBIDataService/ExecuteReport</a:Action>
+      <a:To s:mustUnderstand="1">${serviceUrl}</a:To>
+    </s:Header>
+    <s:Body>
+      <ExecuteReport xmlns="http://www.ultipro.com/dataservices/bidata/2"> 
+        <request xmlns:i="http://www.w3.org/2001/XMLSchema-instance">   
+            <ReportPath>${reportPath}</ReportPath>
+            <ReportParameters>
+              <ReportParameter>
+                <Name>ReportID</Name>
+                <Value>${reportID}</Value>
+              </ReportParameter>
+            </ReportParameters>
+        </request>
+        <context xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+          ${loginData.logonSecret}
+        </context>
+      </ExecuteReport>
+    </s:Body>
+  </s:Envelope>`;
+
+  var options = {
+    method: 'POST',
+    contentType: 'application/soap+xml; charset=utf-8',
+    muteHttpExceptions: true,
+    headers: {
+      'US-DELIMITER': ','  // Specify CSV output
+    },
+    payload: xml
+  };
+
+  var response = UrlFetchApp.fetch(serviceUrl, options);
+  var responseXml = response.getContentText();
+  var startIndex = responseXml.search('<ReportKey>');
+  var endIndex = responseXml.search('</ReportKey>');
+  var reportKey = responseXml.slice(startIndex + '<ReportKey>'.length, endIndex);
+  var data = {
+    responseCode: response.getResponseCode(),
+    reportKey: reportKey,
+  };
+  console.log("executeReport(): data:", data);
+  return data;
+}
+
+// Function to retrieve the report
+function retrieveReport(reportKey) {
+  var serviceUrl = `${ukgWebServicesBaseURL}/services/BIStreamingService`;
+  var xml = `
+  <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing"> 
+    <s:Header> 
+      <a:Action s:mustUnderstand="1">http://www.ultipro.com/dataservices/bistream/2/IBIStreamService/RetrieveReport</a:Action>  
+      <h:ReportKey xmlns:h="http://www.ultipro.com/dataservices/bistream/2" xmlns="http://www.ultipro.com/dataservices/bistream/2">${reportKey}</h:ReportKey>  
+      <a:To s:mustUnderstand="1">${serviceUrl}</a:To>
+    </s:Header>
+    <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <RetrieveReportRequest xmlns="http://www.ultipro.com/dataservices/bistream/2" />
+    </s:Body>
+  </s:Envelope>`;
+
+  var options = {
+    method: 'POST',
+    contentType: 'application/soap+xml; charset=utf-8',
+    muteHttpExceptions: true,
+    payload: xml
+  };
+
+  var response = UrlFetchApp.fetch(serviceUrl, options);
+  var responseXml = response.getContentText();
+  // debug
+  //Logger.log(responseXml); // Log response to extract report data
+
+  // get the ReportStream contents
+  var startIndex = responseXml.search('<ReportStream>');
+  var endIndex = responseXml.search('</ReportStream>');
+  var reportStreamData = responseXml.slice(startIndex + '<ReportStream>'.length, endIndex);
+
+  // debug
+  //Logger.log(reportStreamData);
+
+  // decode the ReportStream contents
+  var decoded = Utilities.base64Decode(reportStreamData);
+  
+  // convert the byte array to a string
+  var reportContentsDecoded = Utilities.newBlob(decoded).getDataAsString();
+
+  // debug
+  //Logger.log(reportContentsDecoded);
+
+  var data = {
+    responseCode: response.getResponseCode(),
+    reportData: reportContentsDecoded,
+  };
+
+  return data
+}
+
+// Take a CSV input formatted as a string (reportData) and import it into a given google sheet (sId, sName)
+// Overwrites the existing sheet contents. Use `sheet.getLastRow() + 1` if you want to append instead
+function dumpReportToSheet(reportData, sId, sName) {
+  // Parses CSV file into data array.
+  var data = Utilities.parseCsv(reportData);
+
+  // Gets the row and column coordinates for next available range in the spreadsheet. 
+  var startRow = 1;
+  var startCol = 1;
+
+  // Determines the incoming data size.
+  var numRows = data.length;
+  var numColumns = data[0].length;
+
+  // Get sheet object
+  var ss = SpreadsheetApp.openById(sId);
+  var sheet = ss.getSheetByName(sName);
+
+  // Clear existing data
+  sheet.clear();
+
+  // Appends data into the sheet.
+  sheet.getRange(startRow, startCol, numRows, numColumns).setValues(data);
+}
