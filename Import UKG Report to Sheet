@@ -1,3 +1,18 @@
+// The code is broken down into several parts:
+
+// UKG API Functions
+// uKG_fetch_API_ReturnlogonSecret: This function fetches the logon secret from the UKG API. This secret is used to authenticate the user and generate the report.
+// uKG_log_off: This function logs off the user from the UKG API (invalidates the logon secret).
+// executeReport: This function generates the UKG report in CSV format using the UKG API.
+// retrieveReport: This function retrieves the generated report from the UKG API as a base64 encoded string, then uses the GoogleScripts Utilities class to decode the base64 string, returning the resulting CSV data.
+
+// Google Sheets API functions
+// dumpReportToSheet: This function takes the CSV data and imports it into a Google Sheet. The function takes the CSV data as input and the Google Sheet ID as input, then imports the data into the specified Google Sheet, overwriting any existing data in the sheet.
+
+// Entrypoint
+// executeAndDumpReport: This function is the entry point for the script. It fetches the logon secret, generates the report, retrieves the report data, and dumps it into the specified Google Sheet.
+
+
 // TL;DR of the steps to take to make this work:
 // 1. Get the login/api token using uKG_fetch_API_ReturnlogonSecret()
 // 2. Pipe that token into a crafted API request that executes the report and generates it in CSV format (executeReport() function)
