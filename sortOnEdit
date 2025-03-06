@@ -1,0 +1,20 @@
+// Used for a glossary. Sorts on edits in column B since that is the full term and A is the acronym. 
+
+function onEdit(e) {
+  if (!e || !e.source) return; // Prevents errors when run manually
+
+  var sheet = e.source.getActiveSheet();
+  var range = e.range;
+
+  // Check if the edit is in Column B (Column index 2)
+  if (range.getColumn() == 2) {
+    var lastRow = sheet.getLastRow();
+    var lastColumn = sheet.getLastColumn();
+
+    // Ensure there is data to sort (excluding header row)
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, lastColumn) // Start from row 2
+        .sort([{ column: 1, ascending: true }]); // Sort by Column 1
+    }
+  }
+}
