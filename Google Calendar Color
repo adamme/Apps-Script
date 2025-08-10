@@ -11,34 +11,76 @@
 8. event source: from calendar - calendar details: calendar updated
 */
 
-function ColorEvents() 
-{
+
+/*
+Summary
+  • Looks ahead 14 days from today to find events in the specified calendar (adamme.mak@stellar.health).
+	•	Matches event titles against your rules:
+	•	Avoids quota errors by remembering which events it’s already colored:
+	•	Stores each processed event’s ID, chosen color, and end time in PropertiesService.
+	•	Skips calling setColor() if the event’s color is already correct.
+	•	Automatically cleans old entries from storage when an event’s end date is before today.
+	•	Runs safely on a “calendar updated” trigger without repeatedly writing to the same events, keeping within Google Calendar’s write limits.
+*/
+
+
+function ColorEvents() {
   var today = new Date();
   var nextweek = new Date();
   nextweek.setDate(nextweek.getDate() + 14);
-  Logger.log(today + " " + nextweek);
+
+  var userProperties = PropertiesService.getUserProperties();
+  var storedData = JSON.parse(userProperties.getProperty('eventColors') || '{}');
+
   var calendars = CalendarApp.getCalendarsByName("email.address@domain.com");
-  Logger.log("found number of calendars: " + calendars.length);
-  for (var i=0; i<calendars.length; i++) 
-  {
-    var calendar = calendars[i];
-    var events = calendar.getEvents(today, nextweek);
-    for (var j=0; j<events.length; j++) 
-    {
-      var e = events[j];
-      var title = e.getTitle();
-      if (title.startsWith("Block") || title.startsWith("Busy") || title.startsWith("OOO") || title.startsWith("Lunch") || title.startsWith("No Meeting") || title.startsWith("Tickets and Emails"))
-      {
-        e.setColor(CalendarApp.EventColor.GRAY);
-      } 
-      else if (title.startsWith("Firstname /") || title.startsWith("Firstname/") || title.startsWith("Firstname|") || title.startsWith("Firstname |"))
-      {
-        e.setColor(CalendarApp.EventColor.PALE_GREEN);
-      }
-      else if (title.endsWith("/ Firstname") || title.endsWith("/Firstname") || title.endsWith("|Firstname") || title.endsWith("| Firstname") || title.endsWith("1:1"))
-      {
-        e.setColor(CalendarApp.EventColor.PALE_GREEN);
-      } 
+
+  // Cleanup old events (ended before today)
+  for (var eventId in storedData) {
+    if (storedData[eventId].end && new Date(storedData[eventId].end) < today) {
+      delete storedData[eventId];
     }
   }
+
+  calendars.forEach(function(calendar) {
+    var events = calendar.getEvents(today, nextweek);
+
+    events.forEach(function(e) {
+      var eventId = e.getId();
+      var title = e.getTitle();
+      var currentColor = e.getColor();
+      var eventEnd = e.getEndTime();
+      var newColor = null;
+
+      // Decide target color
+      if (title.startsWith("Block") || title.startsWith("Busy") || title.startsWith("OOO") ||
+          title.startsWith("Lunch") || title.startsWith("No Meeting") || title.startsWith("Tickets and Emails")) {
+        newColor = CalendarApp.EventColor.GRAY;
+      } 
+      else if (title.startsWith("Adamme /") || title.startsWith("Adamme/") || title.startsWith("Adamme|") || title.startsWith("Adamme |") ||
+               title.endsWith("/ Adamme") || title.endsWith("/Adamme") || title.endsWith("|Adamme") || title.endsWith("| Adamme") || title.endsWith("1:1")) {
+        newColor = CalendarApp.EventColor.PALE_GREEN;
+      }
+
+      // Skip if no target color
+      if (!newColor) return;
+
+      // Skip if already processed and color is correct
+      if (storedData[eventId] && storedData[eventId].color === newColor) return;
+
+      // Skip if the color is already correct but just not recorded yet
+      if (currentColor === newColor && storedData[eventId] === undefined) {
+        storedData[eventId] = { color: newColor, end: eventEnd };
+        return;
+      }
+
+      // Change color and store
+      if (currentColor !== newColor) {
+        e.setColor(newColor);
+      }
+      storedData[eventId] = { color: newColor, end: eventEnd };
+    });
+  });
+
+  // Save updated data
+  userProperties.setProperty('eventColors', JSON.stringify(storedData));
 }
