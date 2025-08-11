@@ -1,0 +1,29 @@
+// Used when planning trips, to have high/low temp show on each day with the day's weather condition
+
+function getVisualCrossingHighLowConditions(location, targetDate) {
+  if (!location || !targetDate) return "Missing data";
+
+  const apiKey = 'your-visualcrossing-api-key-here'; // Your API key
+  const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(location)}?unitGroup=us&key=${apiKey}&contentType=json`;
+
+  try {
+    const response = UrlFetchApp.fetch(url);
+    const data = JSON.parse(response.getContentText());
+
+    const dateStr = Utilities.formatDate(new Date(targetDate), "GMT", "yyyy-MM-dd");
+
+    for (const day of data.days) {
+      if (day.datetime === dateStr) {
+        const high = Math.round(day.tempmax);
+        const low = Math.round(day.tempmin);
+        const conditions = day.conditions; // e.g., "Partially cloudy"
+
+        return `${high}°F / ${low}°F - ${conditions}`;
+      }
+    }
+    return "No forecast for date";
+
+  } catch (e) {
+    return "Error: " + e.message;
+  }
+}
