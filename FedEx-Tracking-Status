@@ -1,0 +1,126 @@
+// --- CONFIGURATION: REPLACE WITH YOUR API KEYS, created with free FedEx Developer Account ---
+const CLIENT_ID = "Your-API-Key"; // Replace with your API Key
+const CLIENT_SECRET = "Your-Client-Secret"; // Replace with your Secret Key
+// ---------------------------------------------------
+
+const FEDEX_AUTH_URL = "https://apis.fedex.com/oauth/token";
+const FEDEX_TRACKING_URL = "https://apis.fedex.com/track/v1/trackingnumbers";
+
+function getAccessToken() {
+  const tokenCache = CacheService.getScriptCache();
+  let accessToken = tokenCache.get("fedexAccessToken");
+
+  if (accessToken) {
+    return accessToken;
+  }
+
+  const payload = {
+    "grant_type": "client_credentials",
+    "client_id": CLIENT_ID,
+    "client_secret": CLIENT_SECRET
+  };
+
+  const options = {
+    "method": "post",
+    "contentType": "application/x-www-form-urlencoded",
+    "payload": payload,
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(FEDEX_AUTH_URL, options);
+    const data = JSON.parse(response.getContentText());
+    if (!data.access_token) {
+      throw new Error("No access token in response");
+    }
+    accessToken = data.access_token;
+    tokenCache.put("fedexAccessToken", accessToken, 3500); // ~58 min cache
+    return accessToken;
+  } catch (e) {
+    throw new Error("Failed to get FedEx access token: " + e.message);
+  }
+}
+
+function isFedExTrackingNumber(trackingNumber) {
+  if (typeof trackingNumber !== 'string' || trackingNumber.trim() === '') {
+    return false;
+  }
+  const trimmedNumber = trackingNumber.trim().toUpperCase();
+  const fedexRegex = /^[0-9]{12}$|^[0-9]{15}$|^[0-9]{20}$|^[0-9]{22}$|^96\d{20}$/;
+  return fedexRegex.test(trimmedNumber);
+}
+
+/**
+ * Looks up the status of a FedEx tracking number or an array of numbers.
+ * @param {string|string[][]} trackingNumbers The tracking number or an array of numbers.
+ * @return The tracking status as a string or an array of statuses.
+ * @customfunction
+ */
+function getFedExStatus(trackingNumbers) {
+  if (!trackingNumbers) {
+    return "";
+  }
+
+  const trackingNumbersArray = Array.isArray(trackingNumbers) ? trackingNumbers.flat() : [trackingNumbers];
+  const validTrackingNumbers = trackingNumbersArray.filter(isFedExTrackingNumber);
+
+  if (validTrackingNumbers.length === 0) {
+    return trackingNumbersArray.map(() => "No valid tracking numbers found.");
+  }
+
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    return trackingNumbersArray.map(() => "Error: Could not get access token.");
+  }
+
+  const trackingInfo = validTrackingNumbers.map(tn => ({
+    "trackingNumberInfo": { "trackingNumber": tn }
+  }));
+
+  const payload = {
+    "trackingInfo": trackingInfo,
+    "includeDetailedScans": false
+  };
+
+  const options = {
+    "method": "post",
+    "contentType": "application/json",
+    "headers": { "Authorization": "Bearer " + accessToken },
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(FEDEX_TRACKING_URL, options);
+    const data = JSON.parse(response.getContentText());
+    const resultsMap = new Map();
+
+    // ✅ Parse production FedEx API format
+    if (data.output && data.output.completeTrackResults) {
+      data.output.completeTrackResults.forEach(result => {
+        const tn = result.trackingNumber;
+        if (result.trackResults && result.trackResults.length > 0) {
+          const status = result.trackResults[0].latestStatusDetail?.description || "No status";
+          resultsMap.set(tn, status);
+        } else {
+          resultsMap.set(tn, "No status found.");
+        }
+      });
+    }
+
+    // Handle API-level errors
+    if (data.errors && data.errors.length > 0) {
+      return trackingNumbersArray.map(() => "API Error: " + data.errors[0].message);
+    }
+
+    // Map results back in original order
+    return trackingNumbersArray.map(tn => {
+      if (!isFedExTrackingNumber(tn)) {
+        return "Invalid tracking number.";
+      }
+      return resultsMap.get(tn) || "Status not found.";
+    });
+
+  } catch (e) {
+    return trackingNumbersArray.map(() => "An error occurred: " + e.message);
+  }
+}
