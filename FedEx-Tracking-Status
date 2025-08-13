@@ -1,4 +1,6 @@
 // --- CONFIGURATION: REPLACE WITH YOUR API KEYS, created with free FedEx Developer Account ---
+// -- Call this getFedExStatus function in a sheet cell/array, something like ={"FedEx Status"; ARRAYFORMULA(IF(X3:X<>"", getFedExStatus(trim(X3:X)), ""))}
+
 const CLIENT_ID = "Your-API-Key"; // Replace with your API Key
 const CLIENT_SECRET = "Your-Client-Secret"; // Replace with your Secret Key
 // ---------------------------------------------------
