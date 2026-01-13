@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+      body { font-family: 'Inter', sans-serif; }
+      .logo-font { 
+        font-family: 'Raleway', sans-serif;
+        font-weight: 400;
+        letter-spacing: -0.01em;
+      }
+      .loader {
+        border-top-color: #3498db;
+        -webkit-animation: spinner 1.5s linear infinite;
+        animation: spinner 1.5s linear infinite;
+      }
+      @keyframes spinner {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .chevron-icon {
+        transition: transform 0.2s ease-in-out;
+      }
+      .rotate-180 {
+        transform: rotate(180deg);
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 min-h-screen flex flex-col items-center pt-16 px-4">
+
+    <div class="w-full max-w-lg bg-white rounded-xl shadow-lg p-8 mb-10">
+      
+      <!-- Subtle Company Logo -->
+      <div class="flex justify-center mb-6">
+        <div class="logo-font text-xl select-none opacity-90">
+          <span style="color: #FF6600;">Company</span><span style="color: #b4b4b5;">health</span>
+        </div>
+      </div>
+      
+      <div class="text-center mb-8">
+        <h1 class="text-2xl font-bold text-gray-800">Google Group Inspector</h1>
+        <p class="text-gray-500 text-sm mt-1">Internal Tool</p>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Google Group Email Address</label>
+          <input type="text" id="emailInput" 
+                 class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                 onkeypress="if(event.key === 'Enter') searchGroup()"
+                 >
+        </div>
+
+        <button onclick="searchGroup()" id="searchBtn"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex justify-center items-center">
+          <span>Search</span>
+          <div id="spinner" class="loader ease-linear rounded-full border-2 border-t-2 border-gray-200 h-5 w-5 ml-2 hidden"></div>
+        </button>
+      </div>
+
+      <!-- Error Message -->
+      <div id="errorBox" class="hidden mt-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-100"></div>
+
+      <!-- Results -->
+      <div id="resultsArea" class="hidden mt-8 space-y-6">
+        
+        <!-- Owners / Managers Section -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Owners / Managers</h3>
+            <span id="leadershipCount" class="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500"></span>
+          </div>
+          <ul id="leadershipList" class="space-y-2 text-sm text-gray-800"></ul>
+        </div>
+
+        <!-- Collapsible Members Section -->
+        <div class="border-t border-gray-100 pt-4">
+            <button onclick="toggleMembers()" class="w-full flex items-center justify-between group focus:outline-none p-1 -ml-1 rounded hover:bg-gray-50 transition-colors">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Members</h3>
+                    <span id="totalMembersBadge" class="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500"></span>
+                </div>
+                <!-- SVG Chevron -->
+                <svg id="membersChevron" class="chevron-icon w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </button>
+            
+            <div id="membersContainer" class="hidden mt-4 pl-3 border-l-2 border-gray-100 ml-1 space-y-6">
+                
+                <!-- Nested Groups Subsection -->
+                <div>
+                    <h4 class="text-[11px] font-bold text-[#FF6600] uppercase tracking-wide mb-2 opacity-80">Nested Groups</h4>
+                    <ul id="nestedGroupsList" class="space-y-1 text-sm text-gray-600">
+                        <!-- Populated via JS -->
+                    </ul>
+                </div>
+
+                <!-- All Unique Members Subsection -->
+                <div>
+                    <h4 class="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">All Unique Members</h4>
+                    <ul id="allMembersList" class="space-y-1 text-sm text-gray-600">
+                        <!-- Populated via JS -->
+                    </ul>
+                </div>
+
+            </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <script>
+      /**
+       * Mocking the Google Apps Script environment for the Canvas preview.
+       */
+      if (typeof google === 'undefined') {
+        window.google = {
+          script: {
+            run: {
+              withSuccessHandler: function(callback) {
+                this.successHandler = callback;
+                return this;
+              },
+              withFailureHandler: function(callback) {
+                this.failureHandler = callback;
+                return this;
+              },
+              getGroupLeadership: function(email) {
+                // Simulate server latency
+                setTimeout(() => {
+                  
+                  // Mock Raw Data including an external email
+                  const rawOwners = ["admin@mycompany.com", "external-consultant@gmail.com"];
+                  const rawMembers = [
+                      "alice.engineer@mycompany.com", 
+                      "bob.developer@mycompany.com", 
+                      "external.vendor@yahoo.com", // Should be filtered out
+                      "charlie.backend@mycompany.comh",
+                      "admin@@mycompany.com"
+                  ];
+
+                  // Simulate Server-Side Filtering & Counting
+                  const filterFn = email => email.endsWith('@mycompany.com');
+                  const hiddenCount = (rawOwners.length - rawOwners.filter(filterFn).length) + 
+                                      (rawMembers.length - rawMembers.filter(filterFn).length);
+
+                  const response = {
+                    success: true,
+                    owners: rawOwners.filter(filterFn),
+                    managers: ["support@mycompany.com"],
+                    nestedGroups: ["engineering-team@mycompany.com", "backend-squad@mycompany.com"],
+                    allMembers: rawMembers.filter(filterFn),
+                    hiddenCount: hiddenCount // Return the count of hidden members
+                  };
+                  
+                  if (this.successHandler) this.successHandler(response);
+                }, 800);
+              }
+            }
+          }
+        };
+      }
+
+      function searchGroup() {
+        let email = document.getElementById('emailInput').value.trim();
+        const btn = document.getElementById('searchBtn');
+        const spinner = document.getElementById('spinner');
+        const resultsArea = document.getElementById('resultsArea');
+        const errorBox = document.getElementById('errorBox');
+        
+        if (!email) return;
+
+        if (!email.includes('@')) {
+          email = email + '@mycompany.com';
+        }
+
+        // Reset UI
+        btn.disabled = true;
+        spinner.classList.remove('hidden');
+        resultsArea.classList.add('hidden');
+        errorBox.classList.add('hidden');
+        
+        // Reset Accordion
+        document.getElementById('membersContainer').classList.add('hidden');
+        document.getElementById('membersChevron').classList.remove('rotate-180');
+
+        try {
+          google.script.run
+            .withSuccessHandler(function(response) {
+              btn.disabled = false;
+              spinner.classList.add('hidden');
+
+              if (response.success) {
+                displayResults(response);
+              } else {
+                showError(response.error);
+              }
+            })
+            .withFailureHandler(function(err) {
+              btn.disabled = false;
+              spinner.classList.add('hidden');
+              showError("System error: " + (err.message || "Failed to communicate with server."));
+            })
+            .getGroupLeadership(email);
+        } catch (e) {
+          btn.disabled = false;
+          spinner.classList.add('hidden');
+          showError("Google Apps Script context not found.");
+          console.error(e);
+        }
+      }
+
+      function displayResults(data) {
+        const owners = data.owners || [];
+        const managers = data.managers || [];
+        const nestedGroups = data.nestedGroups || [];
+        const allMembers = data.allMembers || [];
+        const hiddenCount = data.hiddenCount || 0;
+
+        // 1. Leadership Section
+        const leadershipList = document.getElementById('leadershipList');
+        const leadershipCount = document.getElementById('leadershipCount');
+        const totalLeadership = owners.length + managers.length;
+        
+        leadershipCount.textContent = totalLeadership;
+        leadershipList.innerHTML = totalLeadership ? '' : '<li class="text-gray-400 italic">No leadership found</li>';
+
+        owners.forEach(email => {
+          leadershipList.innerHTML += `
+            <li class="flex items-center p-2 hover:bg-gray-50 rounded transition-colors border-b border-gray-50 last:border-0">
+              <span class="w-2 h-2 bg-green-500 rounded-full mr-3 shrink-0" title="Owner"></span>
+              <span class="truncate">${email}</span>
+              <span class="ml-auto text-[10px] font-semibold text-gray-400 uppercase tracking-tighter">Owner</span>
+            </li>`;
+        });
+
+        managers.forEach(email => {
+          leadershipList.innerHTML += `
+            <li class="flex items-center p-2 hover:bg-gray-50 rounded transition-colors border-b border-gray-50 last:border-0">
+              <span class="w-2 h-2 bg-blue-500 rounded-full mr-3 shrink-0" title="Manager"></span>
+              <span class="truncate">${email}</span>
+              <span class="ml-auto text-[10px] font-semibold text-gray-400 uppercase tracking-tighter">Manager</span>
+            </li>`;
+        });
+
+        // 2. Members Section
+        const totalMembersBadge = document.getElementById('totalMembersBadge');
+        const nestedGroupsList = document.getElementById('nestedGroupsList');
+        const allMembersList = document.getElementById('allMembersList');
+
+        totalMembersBadge.textContent = allMembers.length;
+
+        // Populate Nested Groups
+        if (nestedGroups.length === 0) {
+            nestedGroupsList.innerHTML = '<li class="text-gray-400 text-xs italic py-1">No nested groups found.</li>';
+        } else {
+            nestedGroupsList.innerHTML = '';
+            nestedGroups.forEach(group => {
+                nestedGroupsList.innerHTML += `
+                <li class="flex items-center py-1.5 px-2 bg-[#fff4eb] text-[#FF6600] rounded text-xs font-medium mb-1">
+                    <svg class="w-3 h-3 mr-2 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    ${group}
+                </li>`;
+            });
+        }
+
+        // Populate All Members
+        if (allMembers.length === 0) {
+            allMembersList.innerHTML = '<li class="text-gray-400 text-xs italic py-1">No members found.</li>';
+        } else {
+            allMembersList.innerHTML = '';
+            // Remove duplicates just in case mock has them, though backend should handle it
+            const uniqueMembers = [...new Set(allMembers)];
+            uniqueMembers.sort();
+            
+            uniqueMembers.forEach(member => {
+                allMembersList.innerHTML += `
+                <li class="flex items-center py-1 px-2 hover:bg-gray-50 rounded text-gray-600">
+                    <span class="w-1.5 h-1.5 bg-gray-300 rounded-full mr-2.5"></span>
+                    <span class="truncate">${member}</span>
+                </li>`;
+            });
+        }
+        
+        // --- ADDED: Show hidden count if applicable ---
+        if (hiddenCount > 0) {
+            allMembersList.innerHTML += `
+            <li class="text-xs text-gray-400 italic py-2 px-2 border-t border-gray-50 mt-1 flex items-center">
+                <svg class="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path></svg>
+                +${hiddenCount} external member(s) hidden
+            </li>`;
+        }
+
+        document.getElementById('resultsArea').classList.remove('hidden');
+      }
+
+      function toggleMembers() {
+          const container = document.getElementById('membersContainer');
+          const chevron = document.getElementById('membersChevron');
+          
+          if (container.classList.contains('hidden')) {
+              container.classList.remove('hidden');
+              chevron.classList.add('rotate-180');
+          } else {
+              container.classList.add('hidden');
+              chevron.classList.remove('rotate-180');
+          }
+      }
+
+      function showError(msg) {
+        const errorBox = document.getElementById('errorBox');
+        errorBox.textContent = "Error: " + msg;
+        errorBox.classList.remove('hidden');
+      }
+    </script>
+  </body>
+</html>
