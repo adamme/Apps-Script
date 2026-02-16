@@ -54,17 +54,12 @@
             line-height: 1;
         }
 
-        .company {
+        .stellar {
             color: #FF6600;
         }
 
-        .name {
+        .health {
             color: #B3B3B3;
-        }
-
-        p.subtitle {
-            color: var(--text-sub);
-            margin-top: 10px;
         }
 
         #loader {
@@ -72,6 +67,23 @@
             font-size: 1.2rem;
             color: var(--text-sub);
             padding: 40px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            border: 3px solid #e5e7eb;
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         /* Grid Layout */
@@ -120,10 +132,7 @@
             line-height: 1;
         }
 
-        /* Top 3 Specifics - Colors Removed */
-        /* .card.rank-1 .rank-badge { color: var(--accent-gold); } */
-        /* .card.rank-2 .rank-badge { color: var(--accent-silver); } */
-        /* .card.rank-3 .rank-badge { color: var(--accent-bronze); } */
+
 
         /* Profile Image */
         .avatar-container {
@@ -200,12 +209,14 @@
     <div class="container">
         <header>
             <div class="company-logo">
-                <span class="Company">company</span><span class="name">name</span>
+                <span class="stellar">stellar</span><span class="health">health</span>
             </div>
             <h1>Tenure Leaderboard</h1>
         </header>
 
-        <div id="loader">Loading employee data...</div>
+        <div id="loader">
+            <div class="spinner"></div><br>Loading employee data...
+        </div>
         <div id="error" class="error"></div>
 
         <div id="grid" class="grid">
@@ -214,44 +225,56 @@
     </div>
 
     <script>
-        // Initialize
+        // HTML-escape helper to prevent XSS from user-controlled data
+        function escapeHtml(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+        // Initialize — single server call for both data and photos
         window.onload = function () {
             if (typeof google !== 'undefined' && google.script) {
-                // Running in Google Apps Script Environment
                 google.script.run
-                    .withSuccessHandler(renderEmployees)
+                    .withSuccessHandler(renderPage)
                     .withFailureHandler(showError)
-                    .getData();
+                    .getPageData();
             } else {
                 // Fallback for Canvas Preview (Mock Data)
-                setTimeout(() => {
-                    renderEmployees({
+                setTimeout(function () {
+                    renderPage({
                         data: [
-                            { name: "Sarah Connors", email: "sarah@example.com", rank: 1, formattedDate: "Jan 12, 2015" },
-                            { name: "Kyle Reese", email: "kyle@example.com", rank: 2, formattedDate: "Mar 04, 2018" }
+                            { name: "Sarah Connors", email: "sarah@example.com", rank: 1, formattedDate: "Jan 12, 2015", tenure: "11 years, 1 month" },
+                            { name: "Kyle Reese", email: "kyle@example.com", rank: 2, formattedDate: "Mar 04, 2018", tenure: "7 years, 11 months" }
                         ],
-                        logs: ["Mock Mode: AdminDirectory not checked"]
+                        photos: {},
+                        logs: ["Mock Mode"]
                     });
                 }, 800);
             }
         };
 
-        function renderEmployees(response) {
+        function renderPage(response) {
             var loader = document.getElementById('loader');
             var grid = document.getElementById('grid');
             var errorDiv = document.getElementById('error');
 
-            // Handle new response structure {data, logs}
-            var employees = response.data || response; // Fallback if old format
-
-            // Note: Logs from getData are minimal now. We'll get more logs from fetchPhotos.
+            var employees = response.data || [];
+            var photos = response.photos || {};
+            var logs = response.logs || [];
 
             loader.style.display = 'none';
 
-            // Trigger animation regardless of data presence
-            setTimeout(function () {
-                grid.classList.add('loaded');
-            }, 100);
+            // Show API warnings if any
+            if (logs.length > 0) {
+                var apiErrors = logs.filter(function (l) { return l.indexOf("failed") >= 0 || l.indexOf("NOT enabled") >= 0; });
+                if (apiErrors.length > 0) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.innerHTML = '<div style="font-size:0.9em; opacity:0.8"><strong>Photo Debug:</strong><br>' + escapeHtml(apiErrors.join(', ')) + '</div>';
+                }
+            }
+
+            setTimeout(function () { grid.classList.add('loaded'); }, 100);
 
             if (!employees || employees.length === 0) {
                 grid.innerHTML = '<div class="empty-message">No employees found in the "TenureRank" tab.<br><small>Check that columns A (Email) and B (Start Date) have data.</small></div>';
@@ -259,82 +282,34 @@
             }
 
             var html = employees.map(function (emp) {
-                // Initial Default Avatar (while real one loads)
-                var avatarSrc = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(emp.name) + '&background=e0e7ff&color=4f46e5';
+                var safeName = escapeHtml(emp.name);
+                var safeEmail = escapeHtml(emp.email);
+                var safeTenure = escapeHtml(emp.tenure || '');
+                var safeDate = escapeHtml(emp.formattedDate || '');
+
+                // Use real photo if available, otherwise fall back to generated avatar
+                var photoUrl = photos[emp.email];
+                var avatarSrc = photoUrl || ('https://ui-avatars.com/api/?name=' + encodeURIComponent(emp.name) + '&background=e0e7ff&color=4f46e5');
 
                 var rankClass = '';
                 if (emp.rank === 1) rankClass = 'rank-1';
                 else if (emp.rank === 2) rankClass = 'rank-2';
                 else if (emp.rank === 3) rankClass = 'rank-3';
 
-                return `
-            <div class="card ${rankClass}">
-              <div class="rank-badge">#${emp.rank}</div>
-              <div class="avatar-container">
-                <img class="avatar" src="${avatarSrc}" alt="${emp.name}" data-email="${emp.email}" id="img-${emp.email.replace(/[@.]/g, '_')}">
-              </div>
-              <h3 class="name">${emp.name}</h3>
-
-              <div class="date-container">
-                  <div class="date-pill">${emp.tenure}</div>
-                  <div class="date-text">${emp.formattedDate}</div>
-              </div>
-            </div>
-          `;
+                return '<div class="card ' + rankClass + '">' +
+                    '<div class="rank-badge">#' + emp.rank + '</div>' +
+                    '<div class="avatar-container">' +
+                    '<img class="avatar" src="' + avatarSrc + '" alt="' + safeName + '">' +
+                    '</div>' +
+                    '<h3 class="name">' + safeName + '</h3>' +
+                    '<div class="date-container">' +
+                    '<div class="date-pill">' + safeTenure + '</div>' +
+                    '<div class="date-text">' + safeDate + '</div>' +
+                    '</div>' +
+                    '</div>';
             }).join('');
 
             grid.innerHTML = html;
-
-            // Progressive Loading: Batched Strategy (Top 20 vs Rest)
-            var allEmails = employees.map(function (e) { return e.email; });
-            var batch1 = allEmails.slice(0, 20);
-            var batch2 = allEmails.slice(20);
-
-            // Fetch Top 20 immediately
-            if (batch1.length > 0) {
-                google.script.run
-                    .withSuccessHandler(updatePhotos)
-                    .withFailureHandler(function (e) { console.warn("Batch 1 fetch failed", e); })
-                    .fetchPhotos(batch1);
-            }
-
-            // Fetch the rest in background (slight delay to prioritize batch 1 network)
-            if (batch2.length > 0) {
-                setTimeout(function () {
-                    google.script.run
-                        .withSuccessHandler(updatePhotos)
-                        .withFailureHandler(function (e) { console.warn("Batch 2 fetch failed", e); })
-                        .fetchPhotos(batch2);
-                }, 500);
-            }
-        }
-
-        function updatePhotos(response) {
-            var photos = response.photos || {};
-            var logs = response.logs || [];
-
-            // Show any logs from the photo fetcher
-            if (logs.length > 0) {
-                var errorDiv = document.getElementById('error');
-                var apiErrors = logs.filter(l => l.includes("failed") || l.includes("NOT enabled"));
-                if (apiErrors.length > 0) {
-                    errorDiv.style.display = 'block';
-                    errorDiv.innerHTML += '<div style="margin-top:10px; font-size:0.9em; opacity:0.8"><strong>Photo Debug:</strong><br>' + apiErrors.join('<br>') + '</div>';
-                }
-            }
-
-            // Update images
-            for (var email in photos) {
-                var url = photos[email];
-                if (url) {
-                    // Find the image by custom ID (safer) or selector
-                    var sanitizedId = 'img-' + email.replace(/[@.]/g, '_');
-                    var img = document.getElementById(sanitizedId);
-                    if (img) {
-                        img.src = url;
-                    }
-                }
-            }
         }
 
         function showError(error) {
