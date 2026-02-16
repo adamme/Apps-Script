@@ -108,7 +108,7 @@ function getData() {
     };
   }
 
-  var sheetId = '1jZYD3ymYTM5X643YbQdGx0ykJ_cIB7IvB5Oa7u0-EWU';
+  var sheetId = 'YOUR-SHEET-ID';
   var tabName = 'TenureRank';
   
   try {
