@@ -62,7 +62,6 @@ function putCache(key, data, time) {
     cache.put(key, json, time);
   } else {
     // Split into chunks
-    var chunks = [];
     var chunkId = 0;
     for (var i = 0; i < size; i += limit) {
       cache.put(key + "_" + chunkId, json.substring(i, i + limit), time);
@@ -73,48 +72,64 @@ function putCache(key, data, time) {
   }
 }
 
+/**
+ * Combined endpoint: returns employee data AND photos in a single round-trip.
+ * This eliminates a second google.script.run call (~2s saved).
+ */
+function getPageData() {
+  var result = getData();
+  var emails = (result.data || []).map(function(e) { return e.email; });
+
+  // Wrap photo fetch so cards always render even if photos fail
+  var photos = {};
+  var photoLogs = [];
+  try {
+    var photoResult = fetchPhotosForEmails_(emails);
+    photos = photoResult.photos || {};
+    photoLogs = photoResult.logs || [];
+  } catch (e) {
+    photoLogs.push("Photo fetch failed: " + e.message);
+  }
+
+  return {
+    data: result.data,
+    photos: photos,
+    logs: (result.logs || []).concat(photoLogs)
+  };
+}
+
 function getData() {
   var cachedData = getCache("employeesData");
   
   if (cachedData) {
-    // Sliding Expiration: Refresh the cache
-    putCache("employeesData", cachedData, 21600);
     return {
       data: cachedData,
       logs: []
     };
   }
 
-  // 1. OPEN THE SHEET
-  var sheetId = 'YOUR-SHEET-ID-HERE';
+  var sheetId = '1jZYD3ymYTM5X643YbQdGx0ykJ_cIB7IvB5Oa7u0-EWU';
   var tabName = 'TenureRank';
   
   try {
     var ss = SpreadsheetApp.openById(sheetId);
     var sheet = ss.getSheetByName(tabName);
     
-    // Error check: Does tab exist?
     if (!sheet) {
-      throw new Error('Tab named "' + tabName + '" was not found. Please check the spelling on the bottom tab of your spreadsheet.');
+      throw new Error('Tab named "' + tabName + '" was not found.');
     }
     
-    // 2. GET DATA
     var lastRow = sheet.getLastRow();
-    // If no data beyond header (row 1), return empty
-    if (lastRow < 2) return []; 
+    if (lastRow < 2) return { data: [], logs: [] }; 
     
-    // Get Columns A (Email) and B (Start Date) starting from row 2
     var values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
     
-    // 3. PROCESS DATA (TEXT ONLY)
     var employees = values.map(function(row) {
-      var email = row[0]; // Column A
-      var rawDate = row[1]; // Column B
+      var email = row[0];
+      var rawDate = row[1];
       
-      // Basic Email Check
       if (!email || String(email).trim() === "") return null;
 
-      // Extract Name
       var name = "Team Member";
       try {
         var userPart = email.split('@')[0];
@@ -125,7 +140,6 @@ function getData() {
         name = email;
       }
       
-      // Robust Date Parsing
       var parsedDate = null;
       var isValidDate = false;
       
@@ -134,58 +148,59 @@ function getData() {
           parsedDate = rawDate;
           isValidDate = true;
         } else {
-          // Try to parse string date
           parsedDate = new Date(rawDate);
           isValidDate = !isNaN(parsedDate.getTime());
         }
       }
 
-      var normalizedEmail = String(email).toLowerCase();
       return {
-        email: normalizedEmail,
+        email: String(email).toLowerCase(),
         name: name,
         startDate: parsedDate,
         isValidDate: isValidDate
       };
     });
     
-    // Remove null rows
     employees = employees.filter(function(e) { return e !== null; });
     
-    // 4. SORT
     employees.sort(function(a, b) {
       if (!a.isValidDate) return 1;
       if (!b.isValidDate) return -1;
       return a.startDate - b.startDate;
     });
     
-    // 5. FORMAT FOR FRONTEND
     var now = new Date();
+    // Hoist timezone lookup out of the loop (was called once per employee before)
+    var tz = Session.getScriptTimeZone();
     
     var formattedData = employees.map(function(e, index) {
       var displayDate = "Unknown Date";
       var tenureString = "";
       
       if (e.isValidDate) {
-        displayDate = Utilities.formatDate(e.startDate, Session.getScriptTimeZone(), "MMM d, yyyy");
+        displayDate = Utilities.formatDate(e.startDate, tz, "MMM d, yyyy");
         
-        // Calculate Tenure
-        var totalMonths = (now.getFullYear() - e.startDate.getFullYear()) * 12 + (now.getMonth() - e.startDate.getMonth());
-        if (now.getDate() < e.startDate.getDate()) totalMonths--;
-        
-        var years = Math.floor(totalMonths / 12);
-        var months = totalMonths % 12;
-        
-        var parts = [];
-        if (years > 0) parts.push(years + " " + (years === 1 ? "year" : "years"));
-        if (months > 0) parts.push(months + " " + (months === 1 ? "month" : "months"));
-        
-        if (parts.length === 0) {
-           var diffTime = now - e.startDate;
-           var days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-           tenureString = days + " days";
+        // Guard against future start dates
+        if (e.startDate > now) {
+          tenureString = "Starting soon";
         } else {
-           tenureString = parts.join(", ");
+          var totalMonths = (now.getFullYear() - e.startDate.getFullYear()) * 12 + (now.getMonth() - e.startDate.getMonth());
+          if (now.getDate() < e.startDate.getDate()) totalMonths--;
+          
+          var years = Math.floor(totalMonths / 12);
+          var months = totalMonths % 12;
+          
+          var parts = [];
+          if (years > 0) parts.push(years + " " + (years === 1 ? "year" : "years"));
+          if (months > 0) parts.push(months + " " + (months === 1 ? "month" : "months"));
+          
+          if (parts.length === 0) {
+             var diffTime = now - e.startDate;
+             var days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+             tenureString = days + " days";
+          } else {
+             tenureString = parts.join(", ");
+          }
         }
       }
       
@@ -198,7 +213,6 @@ function getData() {
       };
     });
     
-    // Cache the processed data
     putCache("employeesData", formattedData, 21600);
 
     return {
@@ -212,27 +226,29 @@ function getData() {
 }
 
 /**
- * Fetch photos for a specific list of emails.
- * Checks Cache -> Bulk API -> Individual Fallback
+ * Internal photo fetcher — fetches bulk photos and filters to only requested emails.
+ * No individual fallback loop (users without photos get the ui-avatars default).
  */
-function fetchPhotos(emails) {
-    if (!emails || emails.length === 0) return {};
+function fetchPhotosForEmails_(emails) {
+    if (!emails || emails.length === 0) return { photos: {}, logs: [] };
     
-    var photoMap = {};
+    var fullPhotoMap = {};
     var debugLogs = [];
     var photosLoaded = false;
+    
+    // Build a quick lookup set for the emails we care about
+    var emailSet = {};
+    emails.forEach(function(e) { emailSet[e.toLowerCase()] = true; });
     
     // 1. Check Cache
     var cachedPhotos = getCache("photoMap");
     if (cachedPhotos) {
-        photoMap = cachedPhotos;
-        // Sliding Expiration
-        putCache("photoMap", photoMap, 21600);
+        fullPhotoMap = cachedPhotos;
     }
     
-    // If cache missed or empty, fetch
-    if (Object.keys(photoMap).length === 0) {
-        // 2. Admin Directory Bulk
+    // 2. If cache missed, fetch from APIs
+    if (Object.keys(fullPhotoMap).length === 0) {
+        // Admin Directory Bulk
         try {
           if (typeof AdminDirectory !== 'undefined') {
              var pageToken;
@@ -247,7 +263,7 @@ function fetchPhotos(emails) {
                if (response.users) {
                  response.users.forEach(function(user) {
                    if (user.primaryEmail && user.thumbnailPhotoUrl) {
-                     photoMap[user.primaryEmail.toLowerCase()] = user.thumbnailPhotoUrl;
+                     fullPhotoMap[user.primaryEmail.toLowerCase()] = user.thumbnailPhotoUrl;
                    }
                  });
                  photosLoaded = true;
@@ -261,32 +277,32 @@ function fetchPhotos(emails) {
           debugLogs.push("AdminDirectory failed: " + e.message);
         }
 
-        // 3. People API Bulk
+        // People API fallback (only if AdminDirectory didn't work)
         if (!photosLoaded) {
           try {
             if (typeof People !== 'undefined') {
-              var pageToken;
+              var pageToken2;
               do {
-                var response = People.People.listDirectoryPeople({
+                var resp = People.People.listDirectoryPeople({
                   readMask: 'emailAddresses,photos',
                   sources: ['DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE'],
                   pageSize: 1000,
-                  pageToken: pageToken
+                  pageToken: pageToken2
                 });
                 
-                if (response.people) {
-                  response.people.forEach(function(person) {
+                if (resp.people) {
+                  resp.people.forEach(function(person) {
                     if (person.emailAddresses && person.photos) {
                       var url = person.photos[0].url;
                       person.emailAddresses.forEach(function(emailObj) {
-                        photoMap[emailObj.value.toLowerCase()] = url;
+                        fullPhotoMap[emailObj.value.toLowerCase()] = url;
                       });
                     }
                   });
                   photosLoaded = true;
                 }
-                pageToken = response.nextPageToken;
-              } while (pageToken);
+                pageToken2 = resp.nextPageToken;
+              } while (pageToken2);
             } else {
                debugLogs.push("People API not enabled.");
             }
@@ -295,37 +311,27 @@ function fetchPhotos(emails) {
           }
         }
         
-        // Save bulk result to cache
-        if (Object.keys(photoMap).length > 0) {
-           putCache("photoMap", photoMap, 21600);
+        // Cache the full domain map for next time
+        if (Object.keys(fullPhotoMap).length > 0) {
+           putCache("photoMap", fullPhotoMap, 21600);
         }
     }
     
-    // 4. Individual Fallback
-    var updatedCache = false;
-    emails.forEach(function(email) {
-       var normEmail = email.toLowerCase();
-       if (!photoMap[normEmail]) {
-          // Try individual fetch
-          try {
-            if (typeof AdminDirectory !== 'undefined') {
-              var user = AdminDirectory.Users.get(email, {viewType: 'domain_public'});
-              if (user && user.thumbnailPhotoUrl) {
-                photoMap[normEmail] = user.thumbnailPhotoUrl;
-                updatedCache = true;
-              }
-            }
-          } catch (e) {}
-       }
-    });
-    
-    if (updatedCache) {
-       putCache("photoMap", photoMap, 21600);
+    // 3. Filter to only the emails on the leaderboard (smaller payload)
+    var filteredPhotos = {};
+    for (var email in fullPhotoMap) {
+      if (emailSet[email]) {
+        filteredPhotos[email] = fullPhotoMap[email];
+      }
     }
 
     return {
-        photos: photoMap,
+        photos: filteredPhotos,
         logs: debugLogs
     };
 }
-    
+
+/** @deprecated Use getPageData() instead — kept for backward compatibility */
+function fetchPhotos(emails) {
+    return fetchPhotosForEmails_(emails);
+}
