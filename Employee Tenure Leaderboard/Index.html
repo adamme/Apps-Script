@@ -1,1 +1,350 @@
+<!DOCTYPE html>
+<html>
 
+<head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Raleway:wght@700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #4f46e5;
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #111827;
+            --text-sub: #6b7280;
+            --accent-gold: #f59e0b;
+            --accent-silver: #9ca3af;
+            --accent-bronze: #b45309;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        h1 {
+            font-weight: 800;
+            font-size: 2.5rem;
+            margin: 0;
+            color: var(--text-main);
+            letter-spacing: -0.025em;
+        }
+
+        .company-logo {
+            font-family: 'Raleway', sans-serif;
+            font-weight: 700;
+            font-size: 2rem;
+            margin-bottom: 20px;
+            text-transform: lowercase;
+            line-height: 1;
+        }
+
+        .company {
+            color: #FF6600;
+        }
+
+        .name {
+            color: #B3B3B3;
+        }
+
+        p.subtitle {
+            color: var(--text-sub);
+            margin-top: 10px;
+        }
+
+        #loader {
+            text-align: center;
+            font-size: 1.2rem;
+            color: var(--text-sub);
+            padding: 40px;
+        }
+
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .grid.loaded {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Universal Card Styling (Unified Border) */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            border: 1px solid #e5e7eb;
+            /* Uniform border for all */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            position: relative;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            overflow: hidden;
+        }
+
+
+
+        /* Rank Badge */
+        .rank-badge {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            font-weight: 800;
+            font-size: 1.125rem;
+            color: #d1d5db;
+            z-index: 10;
+            line-height: 1;
+        }
+
+        /* Top 3 Specifics - Colors Removed */
+        /* .card.rank-1 .rank-badge { color: var(--accent-gold); } */
+        /* .card.rank-2 .rank-badge { color: var(--accent-silver); } */
+        /* .card.rank-3 .rank-badge { color: var(--accent-bronze); } */
+
+        /* Profile Image */
+        .avatar-container {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 12px;
+            border-radius: 50%;
+            overflow: hidden;
+            background-color: #e0e7ff;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 1px #e5e7eb;
+        }
+
+        .avatar {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .name {
+            font-weight: 600;
+            font-size: 1rem;
+            margin: 0 0 2px 0;
+            color: var(--text-main);
+            line-height: 1.4;
+        }
+
+
+
+        .date-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .date-pill {
+            background-color: #eff6ff;
+            color: var(--primary-color);
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .date-text {
+            font-size: 0.75rem;
+            color: var(--text-sub);
+            margin-top: 4px;
+        }
+
+        /* Error Message */
+        .error {
+            color: #ef4444;
+            background: #fef2f2;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+            display: none;
+        }
+
+        .empty-message {
+            text-align: center;
+            width: 100%;
+            grid-column: 1 / -1;
+            padding: 40px;
+            background: white;
+            border-radius: 12px;
+            color: var(--text-sub);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="company-logo">
+                <span class="Company">company</span><span class="name">name</span>
+            </div>
+            <h1>Tenure Leaderboard</h1>
+        </header>
+
+        <div id="loader">Loading employee data...</div>
+        <div id="error" class="error"></div>
+
+        <div id="grid" class="grid">
+            <!-- Cards will be injected here -->
+        </div>
+    </div>
+
+    <script>
+        // Initialize
+        window.onload = function () {
+            if (typeof google !== 'undefined' && google.script) {
+                // Running in Google Apps Script Environment
+                google.script.run
+                    .withSuccessHandler(renderEmployees)
+                    .withFailureHandler(showError)
+                    .getData();
+            } else {
+                // Fallback for Canvas Preview (Mock Data)
+                setTimeout(() => {
+                    renderEmployees({
+                        data: [
+                            { name: "Sarah Connors", email: "sarah@example.com", rank: 1, formattedDate: "Jan 12, 2015" },
+                            { name: "Kyle Reese", email: "kyle@example.com", rank: 2, formattedDate: "Mar 04, 2018" }
+                        ],
+                        logs: ["Mock Mode: AdminDirectory not checked"]
+                    });
+                }, 800);
+            }
+        };
+
+        function renderEmployees(response) {
+            var loader = document.getElementById('loader');
+            var grid = document.getElementById('grid');
+            var errorDiv = document.getElementById('error');
+
+            // Handle new response structure {data, logs}
+            var employees = response.data || response; // Fallback if old format
+
+            // Note: Logs from getData are minimal now. We'll get more logs from fetchPhotos.
+
+            loader.style.display = 'none';
+
+            // Trigger animation regardless of data presence
+            setTimeout(function () {
+                grid.classList.add('loaded');
+            }, 100);
+
+            if (!employees || employees.length === 0) {
+                grid.innerHTML = '<div class="empty-message">No employees found in the "TenureRank" tab.<br><small>Check that columns A (Email) and B (Start Date) have data.</small></div>';
+                return;
+            }
+
+            var html = employees.map(function (emp) {
+                // Initial Default Avatar (while real one loads)
+                var avatarSrc = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(emp.name) + '&background=e0e7ff&color=4f46e5';
+
+                var rankClass = '';
+                if (emp.rank === 1) rankClass = 'rank-1';
+                else if (emp.rank === 2) rankClass = 'rank-2';
+                else if (emp.rank === 3) rankClass = 'rank-3';
+
+                return `
+            <div class="card ${rankClass}">
+              <div class="rank-badge">#${emp.rank}</div>
+              <div class="avatar-container">
+                <img class="avatar" src="${avatarSrc}" alt="${emp.name}" data-email="${emp.email}" id="img-${emp.email.replace(/[@.]/g, '_')}">
+              </div>
+              <h3 class="name">${emp.name}</h3>
+
+              <div class="date-container">
+                  <div class="date-pill">${emp.tenure}</div>
+                  <div class="date-text">${emp.formattedDate}</div>
+              </div>
+            </div>
+          `;
+            }).join('');
+
+            grid.innerHTML = html;
+
+            // Progressive Loading: Batched Strategy (Top 20 vs Rest)
+            var allEmails = employees.map(function (e) { return e.email; });
+            var batch1 = allEmails.slice(0, 20);
+            var batch2 = allEmails.slice(20);
+
+            // Fetch Top 20 immediately
+            if (batch1.length > 0) {
+                google.script.run
+                    .withSuccessHandler(updatePhotos)
+                    .withFailureHandler(function (e) { console.warn("Batch 1 fetch failed", e); })
+                    .fetchPhotos(batch1);
+            }
+
+            // Fetch the rest in background (slight delay to prioritize batch 1 network)
+            if (batch2.length > 0) {
+                setTimeout(function () {
+                    google.script.run
+                        .withSuccessHandler(updatePhotos)
+                        .withFailureHandler(function (e) { console.warn("Batch 2 fetch failed", e); })
+                        .fetchPhotos(batch2);
+                }, 500);
+            }
+        }
+
+        function updatePhotos(response) {
+            var photos = response.photos || {};
+            var logs = response.logs || [];
+
+            // Show any logs from the photo fetcher
+            if (logs.length > 0) {
+                var errorDiv = document.getElementById('error');
+                var apiErrors = logs.filter(l => l.includes("failed") || l.includes("NOT enabled"));
+                if (apiErrors.length > 0) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.innerHTML += '<div style="margin-top:10px; font-size:0.9em; opacity:0.8"><strong>Photo Debug:</strong><br>' + apiErrors.join('<br>') + '</div>';
+                }
+            }
+
+            // Update images
+            for (var email in photos) {
+                var url = photos[email];
+                if (url) {
+                    // Find the image by custom ID (safer) or selector
+                    var sanitizedId = 'img-' + email.replace(/[@.]/g, '_');
+                    var img = document.getElementById(sanitizedId);
+                    if (img) {
+                        img.src = url;
+                    }
+                }
+            }
+        }
+
+        function showError(error) {
+            var loader = document.getElementById('loader');
+            var errorDiv = document.getElementById('error');
+            loader.style.display = 'none';
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = 'Error loading data: ' + error.message;
+        }
+    </script>
+</body>
+
+</html>
