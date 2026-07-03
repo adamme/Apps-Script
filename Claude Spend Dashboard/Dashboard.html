@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<base target="_top">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #FAF7F2;
+  --bg-card: #FFFFFF;
+  --ink: #1A1814;
+  --ink-soft: #5A5247;
+  --ink-faint: #9A9085;
+  --rule: #E8E1D5;
+  --accent: #D9531E;
+  --accent-soft: #FCEEE5;
+  --cowork: #D9531E;
+  --chat: #2A6F97;
+  --claude-code: #6B8E4E;
+  --research: #7B5A91;
+  --office-agents: #C28F00;
+  --voice-mode: #9A9085;
+  --ok: #5B7A3F;
+  --warn: #B23F0F;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: "Inter Tight", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { padding: 28px 36px 48px; min-height: 100vh; }
+.serif { font-family: "Fraunces", serif; }
+.mono { font-family: "JetBrains Mono", monospace; }
+
+/* Masthead */
+/* Top bar */
+.topbar { display: flex; justify-content: space-between; align-items: center; padding-bottom: 14px; margin-bottom: 24px; border-bottom: 1px solid var(--rule); gap: 24px; flex-wrap: wrap; }
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-right { display: flex; align-items: center; gap: 14px; }
+.dot { width: 9px; height: 9px; background: var(--accent); border-radius: 50%; display: inline-block; }
+.org { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
+.asof { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--ink-soft); font-weight: 500; letter-spacing: 0.04em; }
+.refresh-pill { padding: 3px 8px; border-radius: 2px; background: var(--rule); color: var(--ink-soft); font-weight: 600; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.refresh-pill.ok { background: #E0EBD4; color: var(--ok); }
+.refresh-pill.error { background: #F5D5C9; color: var(--warn); }
+.refresh-pill.running { background: var(--accent-soft); color: var(--warn); }
+.screenshot-btn { padding: 6px 12px; border: 1px solid var(--ink); background: transparent; color: var(--ink); font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; border-radius: 2px; display: inline-flex; align-items: center; gap: 6px; }
+.screenshot-btn:hover { background: var(--ink); color: var(--bg); }
+
+/* Hero (overview page only) */
+.hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 36px; align-items: end; margin-bottom: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--rule); }
+.hero-left h1 { font-family: "Fraunces", serif; font-weight: 500; font-size: clamp(32px, 4vw, 44px); line-height: 1; letter-spacing: -0.02em; margin-bottom: 4px; }
+.hero-left h1 em { font-style: italic; color: var(--accent); }
+.hero-left .hero-sub { font-size: 13px; color: var(--ink-soft); margin-top: 8px; line-height: 1.5; max-width: 440px; }
+.hero-num { text-align: right; }
+.hero-num .label { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; margin-bottom: 8px; }
+.hero-num .big { font-family: "Fraunces", serif; font-weight: 500; font-size: clamp(56px, 7vw, 80px); line-height: 0.9; letter-spacing: -0.03em; color: var(--ink); }
+.hero-num .change { font-family: "JetBrains Mono", monospace; font-size: 15px; font-weight: 600; color: var(--warn); margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--accent-soft); border-radius: 2px; }
+.hero-num .change.down { color: var(--ok); background: #E0EBD4; }
+.hero-num .change-detail { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--ink-faint); margin-top: 6px; }
+
+/* Secondary stats row (Overview page) */
+.secondary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; margin-bottom: 32px; }
+.stat .label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; margin-bottom: 6px; }
+.stat .value { font-family: "Fraunces", serif; font-weight: 500; font-size: 26px; letter-spacing: -0.01em; }
+.stat .sub { font-size: 11px; color: var(--ink-faint); margin-top: 4px; font-family: "JetBrains Mono", monospace; }
+
+.chart-card-quiet h2 { font-family: "Fraunces", serif; font-weight: 500; font-size: 18px; letter-spacing: -0.01em; margin-bottom: 18px; color: var(--ink-soft); }
+
+/* Capture area — the region the "Copy chart" button rasterizes. The
+ * capture-header only shows in the exported image (hidden on screen since
+ * the top bar already carries org + date). */
+#capture-area { background: var(--bg); }
+.capture-header { display: none; }
+/* During capture we add .capturing to reveal the header so the exported
+ * image is self-contained. */
+#capture-area.capturing { padding: 28px 32px; border: 1px solid var(--rule); border-radius: 6px; }
+#capture-area.capturing .capture-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+.capture-org { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.capture-dot { width: 9px; height: 9px; background: var(--accent); border-radius: 50%; display: inline-block; }
+.capture-date { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--ink-soft); font-weight: 500; letter-spacing: 0.04em; }
+.screenshot-btn.copied { background: var(--ok); color: #fff; border-color: var(--ok); }
+.screenshot-btn.copy-error { background: var(--warn); color: #fff; border-color: var(--warn); }
+
+/* Navigation */
+.nav { display: flex; gap: 0; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.nav button { background: none; border: none; padding: 12px 22px 14px; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink-faint); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; letter-spacing: -0.01em; }
+.nav button:hover { color: var(--ink); }
+.nav button.active { color: var(--ink); border-bottom-color: var(--accent); }
+.nav button .count { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink-faint); margin-left: 8px; font-weight: 500; }
+
+.page { display: none; }
+.page.active { display: block; }
+
+/* KPI strip */
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-bottom: 32px; }
+.kpi { padding: 20px 22px 20px 0; border-right: 1px solid var(--rule); }
+.kpi:nth-child(n+2) { padding-left: 22px; }
+.kpi:last-child { border-right: none; }
+.kpi .label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; margin-bottom: 8px; }
+.kpi .value { font-family: "Fraunces", serif; font-weight: 500; font-size: 38px; line-height: 1; letter-spacing: -0.02em; }
+.kpi .value .unit { font-size: 16px; color: var(--ink-soft); font-weight: 400; }
+.kpi .sub { font-size: 11px; color: var(--ink-faint); margin-top: 6px; font-family: "JetBrains Mono", monospace; }
+.kpi .sub.up { color: var(--warn); }
+.kpi .sub.down { color: var(--ok); }
+
+/* Chart area */
+.card { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 4px; padding: 24px 26px; margin-bottom: 24px; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.card h2 { font-family: "Fraunces", serif; font-weight: 500; font-size: 22px; letter-spacing: -0.01em; }
+.card h2 em { font-style: italic; color: var(--accent); }
+.card .desc { font-size: 12px; color: var(--ink-soft); margin-bottom: 18px; }
+.card .meta { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+
+/* Monthly chart */
+.chart-wrap { position: relative; width: 100%; height: 360px; margin-top: 14px; }
+svg.chart { width: 100%; height: 100%; overflow: visible; }
+.bar { fill: var(--accent); transition: opacity .15s; cursor: pointer; }
+.bar:hover { opacity: 0.85; }
+.bar-label { font-family: "JetBrains Mono", monospace; font-size: 11px; fill: var(--ink); font-weight: 600; text-anchor: middle; }
+.bar-label-inside { font-family: "JetBrains Mono", monospace; font-size: 11px; fill: #FFFFFF; font-weight: 600; text-anchor: middle; }
+.x-tick { font-family: "Inter Tight", sans-serif; font-size: 12px; fill: var(--ink-soft); font-weight: 500; text-anchor: middle; }
+.y-tick { font-family: "JetBrains Mono", monospace; font-size: 10px; fill: var(--ink-faint); font-weight: 500; text-anchor: end; }
+.grid-line { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 4; }
+.axis-line { stroke: var(--ink); stroke-width: 1.5; }
+.avg-line { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.5; }
+.avg-label { font-family: "JetBrains Mono", monospace; font-size: 10px; fill: var(--ink-soft); }
+
+/* Stacked product bars */
+.seg { transition: opacity .15s; cursor: pointer; }
+.seg:hover { opacity: 0.82; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.legend-sw { width: 12px; height: 12px; border-radius: 2px; }
+.legend-name { font-weight: 600; }
+.legend-val { font-family: "JetBrains Mono", monospace; color: var(--ink-soft); font-size: 11px; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th { text-align: left; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--ink); }
+thead th.num { text-align: right; }
+tbody td { padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+tbody td.num { text-align: right; font-family: "JetBrains Mono", monospace; }
+tbody tr:hover { background: var(--accent-soft); }
+.rank-cell { color: var(--ink-faint); font-family: "JetBrains Mono", monospace; font-size: 11px; width: 30px; }
+.name-cell { font-weight: 600; }
+.email-cell { color: var(--ink-faint); font-size: 11px; font-family: "JetBrains Mono", monospace; }
+.spend-cell { font-weight: 600; }
+.tag { display: inline-block; padding: 2px 7px; border-radius: 2px; font-family: "JetBrains Mono", monospace; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; margin-right: 4px; background: var(--rule); color: var(--ink-soft); }
+
+/* Product breakdown — used in user and department tables */
+.breakdown { min-width: 200px; max-width: 420px; }
+.breakdown-bar { height: 8px; border-radius: 2px; overflow: hidden; display: flex; background: var(--rule); margin-bottom: 5px; }
+.breakdown-seg { height: 100%; transition: opacity .15s; }
+.breakdown-seg:hover { opacity: 0.75; }
+.breakdown-legend { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink-soft); line-height: 1.5; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.breakdown-legend .leg-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.breakdown-legend .leg-sw { width: 8px; height: 8px; border-radius: 1px; display: inline-block; }
+.tag.cowork { background: #FCEEE5; color: #B23F0F; }
+.tag.chat { background: #E2EEF7; color: #1E5276; }
+.tag.claude-code { background: #E0EBD4; color: #4A6B30; }
+
+/* Loading / empty */
+.loading { padding: 60px 20px; text-align: center; color: var(--ink-soft); font-size: 14px; }
+.loading .spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty { padding: 40px 20px; text-align: center; color: var(--ink-soft); font-size: 13px; line-height: 1.6; background: var(--accent-soft); border-radius: 4px; }
+.empty code { background: var(--bg-card); padding: 2px 6px; border-radius: 2px; font-family: "JetBrains Mono", monospace; font-size: 11px; }
+
+/* Search */
+.controls { display: flex; gap: 10px; margin: 14px 0 18px; align-items: center; }
+.search { flex: 1; max-width: 320px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 3px; font-family: inherit; font-size: 13px; background: var(--bg); }
+.search:focus { outline: none; border-color: var(--accent); }
+.sort-btn { padding: 8px 12px; border: 1px solid var(--rule); background: var(--bg-card); font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); cursor: pointer; border-radius: 3px; font-weight: 600; }
+.sort-btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Period selector (shared Users + Departments) */
+.period-selector { display: flex; align-items: center; gap: 8px; margin: 4px 0 16px; }
+.period-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; margin-right: 4px; }
+.period-btn { padding: 7px 16px; border: 1px solid var(--rule); background: var(--bg-card); font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink-soft); cursor: pointer; border-radius: 3px; letter-spacing: -0.01em; }
+.period-btn:hover:not(.active) { color: var(--ink); border-color: var(--ink-faint); }
+.period-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Prominent active-range display in the card head */
+.period-display { font-family: "Fraunces", serif; font-size: 18px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; text-align: right; }
+.period-display .period-total { display: block; font-family: "JetBrains Mono", monospace; font-size: 13px; font-weight: 600; color: var(--accent); margin-top: 2px; letter-spacing: 0; }
+
+/* Expandable user rows + monthly sparkline */
+.user-row-main.clickable { cursor: pointer; }
+.user-row-main.clickable:hover { background: var(--accent-soft); }
+.user-row-detail td { background: var(--bg); border-bottom: 1px solid var(--rule); padding: 0; }
+.spark-wrap { padding: 14px 12px 16px; }
+.spark-title { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; margin-bottom: 12px; }
+.spark-row { display: flex; align-items: flex-end; gap: 14px; height: 92px; }
+.spark-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; min-width: 44px; }
+.spark-val { font-family: "JetBrains Mono", monospace; font-size: 9px; color: var(--ink-soft); font-weight: 600; height: 12px; }
+.spark-bar { width: 28px; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; transition: opacity .15s; }
+.spark-bar:hover { opacity: 0.78; }
+.spark-month { font-family: "JetBrains Mono", monospace; font-size: 9px; color: var(--ink-faint); }
+.spark-empty { font-size: 12px; color: var(--ink-faint); padding: 12px; }
+
+/* Department drill-down */
+.dept-row-main.clickable { cursor: pointer; }
+.dept-row-main.clickable:hover { background: var(--accent-soft); }
+.dept-row-detail td { background: var(--bg); border-bottom: 1px solid var(--rule); padding: 0; }
+.dept-members { padding: 16px 12px 18px; }
+.dept-members-title { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; margin-bottom: 12px; }
+.dept-members-table { width: 100%; border-collapse: collapse; }
+.dept-members-table thead th { text-align: left; font-family: "JetBrains Mono", monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+.dept-members-table thead th.num { text-align: right; }
+.dept-members-table tbody td { padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+.dept-members-table tbody tr:last-child td { border-bottom: none; }
+.dept-members-table tbody td.num { text-align: right; font-family: "JetBrains Mono", monospace; }
+.dept-members-empty { font-size: 12px; color: var(--ink-faint); padding: 12px; }
+
+/* Gemini adoption tab */
+.gem-note { background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 12px 16px; margin-bottom: 24px; font-size: 13px; line-height: 1.5; color: var(--ink); border-radius: 0 3px 3px 0; }
+.gem-apps { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+.gem-app-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 14px; align-items: center; }
+.gem-app-name { font-weight: 600; font-size: 13px; }
+.gem-app-track { height: 10px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.gem-app-fill { height: 100%; background: #3A8FB7; border-radius: 3px; }
+.gem-app-val { font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.gem-app-share { color: var(--ink-faint); font-weight: 500; margin-left: 4px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="dot"></span>
+    <span class="org">Company · Claude Enterprise</span>
+  </div>
+  <div class="topbar-right">
+    <span class="asof" id="asof-date">—</span>
+    <button class="screenshot-btn" id="copy-chart-btn" onclick="copyHeroToClipboard()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+      <span id="copy-chart-label">Copy chart</span>
+    </button>
+  </div>
+</div>
+
+<div class="nav">
+  <button class="active" data-page="overview">Overview</button>
+  <button data-page="products">Products <span class="count" id="nav-prod-count"></span></button>
+  <button data-page="users">Users <span class="count" id="nav-user-count"></span></button>
+  <button data-page="departments">Departments <span class="count" id="nav-dept-count"></span></button>
+  <button data-page="gemini">Gemini <span class="count" id="nav-gem-count"></span></button>
+</div>
+
+<!-- ================= OVERVIEW ================= -->
+<div class="page active" id="page-overview">
+  <div id="overview-content">
+    <div class="loading"><span class="spinner"></span>Loading spend data…</div>
+  </div>
+</div>
+
+<!-- ================= PRODUCTS ================= -->
+<div class="page" id="page-products">
+  <div id="products-content">
+    <div class="loading"><span class="spinner"></span>Loading…</div>
+  </div>
+</div>
+
+<!-- ================= USERS ================= -->
+<div class="page" id="page-users">
+  <div id="users-content">
+    <div class="loading"><span class="spinner"></span>Loading…</div>
+  </div>
+</div>
+
+<!-- ================= DEPARTMENTS ================= -->
+<div class="page" id="page-departments">
+  <div id="departments-content">
+    <div class="loading"><span class="spinner"></span>Loading…</div>
+  </div>
+</div>
+
+<div class="page" id="page-gemini">
+  <div id="gemini-content">
+    <div class="loading"><span class="spinner"></span>Loading…</div>
+  </div>
+</div>
+
+<script>
+// ---- Color map (matches CSS vars; product names match API output) ----
+// The API may return products as snake_case slugs ('claude_code'), Title Case
+// ('Claude Code'), or other variants. We normalize all of them to a canonical
+// key so colors and labels apply consistently.
+const PRODUCT_CANONICAL = {
+  // Canonical slug list per the Analytics API:
+  //   chat, claude_code, code_review, cc_security_autopatch, cowork,
+  //   office_agent, claude_in_chrome, claude_design, claude_in_slack,
+  //   voice_mode, research, other
+  'cowork': 'Cowork',
+  'chat': 'Chat',
+  'claudecode': 'Claude Code',
+  'claude_code': 'Claude Code',
+  'codereview': 'Code Review',
+  'code_review': 'Code Review',
+  'ccsecurityautopatch': 'Security Autopatch',
+  'cc_security_autopatch': 'Security Autopatch',
+  'research': 'Research',
+  'officeagent': 'Office Agent',
+  'office_agent': 'Office Agent',
+  'officeagents': 'Office Agent',  // legacy variant
+  'office_agents': 'Office Agent', // legacy variant
+  'voicemode': 'Voice Mode',
+  'voice_mode': 'Voice Mode',
+  'claudeinchrome': 'Claude in Chrome',
+  'claude_in_chrome': 'Claude in Chrome',
+  'claudedesign': 'Claude Design',
+  'claude_design': 'Claude Design',
+  'claudeinslack': 'Claude in Slack',
+  'claude_in_slack': 'Claude in Slack',
+  'other': 'Other',
+  'unknown': 'Other',
+};
+const PRODUCT_COLORS = {
+  'Cowork': '#D9531E',
+  'Chat': '#2A6F97',
+  'Claude Code': '#6B8E4E',
+  'Code Review': '#4E7A6B',
+  'Security Autopatch': '#9C4F2E',
+  'Research': '#7B5A91',
+  'Office Agent': '#C28F00',
+  'Voice Mode': '#A0517A',
+  'Claude in Chrome': '#3A8FB7',
+  'Claude in Slack': '#5A6F2E',
+  'Claude Design': '#B8763E',
+  'Other': '#9A9085',
+  'all': '#1A1814',
+};
+// Palette of fallback colors for any product we haven't seen before.
+// Picked so adjacent slots look clearly distinct (warm/cool alternation).
+const FALLBACK_PALETTE = ['#7B5A91', '#C28F00', '#3A8FB7', '#9C4F2E', '#4E7A6B', '#A0517A', '#5A6F2E'];
+let fallbackAssignments = {};
+
+function canonicalProduct(p) {
+  if (!p) return 'unknown';
+  const key = String(p).toLowerCase().replace(/[\s_-]+/g, '');
+  return PRODUCT_CANONICAL[key] || p;
+}
+function productColor(p) {
+  const canonical = canonicalProduct(p);
+  if (PRODUCT_COLORS[canonical]) return PRODUCT_COLORS[canonical];
+  // Stable assignment: same unknown product always gets the same palette slot.
+  if (!fallbackAssignments[canonical]) {
+    const idx = Object.keys(fallbackAssignments).length % FALLBACK_PALETTE.length;
+    fallbackAssignments[canonical] = FALLBACK_PALETTE[idx];
+  }
+  return fallbackAssignments[canonical];
+}
+function productLabel(p) { return canonicalProduct(p); }
+
+/**
+ * Render a row's product breakdown as a small stacked bar + inline legend.
+ * Given an object like {cowork: 320, chat: 50}, produces a tight little
+ * column with a colored proportional bar and "$320 Cowork · $50 Chat".
+ */
+function renderBreakdown(by_product) {
+  const entries = Object.keys(by_product || {})
+    .map(k => ({ p: k, v: by_product[k] }))
+    .filter(e => e.v > 0)
+    .sort((a, b) => b.v - a.v);
+  if (!entries.length) return '<span class="breakdown-legend" style="color:var(--ink-faint)">—</span>';
+  const total = entries.reduce((s, e) => s + e.v, 0);
+  let segs = '';
+  entries.forEach(e => {
+    const pct = (e.v / total) * 100;
+    segs += `<div class="breakdown-seg" style="width:${pct}%;background:${productColor(e.p)}" title="${productLabel(e.p)}: ${fmtMoney(e.v)}"></div>`;
+  });
+  // Legend: list every product with its dollar amount — nothing hidden.
+  const legend = entries.map(e =>
+    `<span class="leg-item"><span class="leg-sw" style="background:${productColor(e.p)}"></span>${productLabel(e.p)} ${fmtMoney0(e.v)}</span>`
+  ).join('');
+  return `<div class="breakdown">
+    <div class="breakdown-bar">${segs}</div>
+    <div class="breakdown-legend">${legend}</div>
+  </div>`;
+}
+
+// ---- Formatters ----
+const fmtMoney = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtMoney0 = n => '$' + n.toLocaleString('en-US', {maximumFractionDigits:0});
+const fmtInt = n => n.toLocaleString('en-US');
+const fmtCompact = n => {
+  if (n >= 1e9) return (n/1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+};
+const fmtMonth = m => {
+  const [y, mo] = m.split('-');
+  return new Date(Date.UTC(+y, +mo - 1, 1)).toLocaleString('en-US', {month: 'short', year: '2-digit', timeZone: 'UTC'});
+};
+
+// ---- Navigation ----
+document.querySelectorAll('.nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('page-' + btn.dataset.page).classList.add('active');
+  });
+});
+
+// ---- Data load ----
+let DATA = null;
+function loadData() {
+  google.script.run
+    .withSuccessHandler(data => {
+      DATA = data;
+      renderRefreshState();
+      renderOverview();
+      renderProducts();
+      renderUsers();
+      renderDepartments();
+      renderGemini();
+    })
+    .withFailureHandler(err => {
+      document.getElementById('overview-content').innerHTML =
+        '<div class="empty">Could not load data:<br><code>' + (err.message || err) + '</code></div>';
+    })
+    .getDashboardData();
+}
+loadData();
+
+// ---- Refresh state strip ----
+function renderRefreshState() {
+  const asof = document.getElementById('asof-date');
+  // "As of" date: use the last day we actually have cost data for, since
+  // that's what the report covers. Falls back to refresh timestamp.
+  if (DATA.month_series && DATA.month_series.length) {
+    const lastMonth = DATA.month_series[DATA.month_series.length - 1].month;
+    const [y, mo] = lastMonth.split('-');
+    // Use last day of latest month, or today if it's the current month
+    const monthEnd = new Date(Date.UTC(+y, +mo, 0));
+    const now = new Date();
+    const isCurrentMonth = now.getUTCFullYear() === +y && (now.getUTCMonth() + 1) === +mo;
+    const displayDate = isCurrentMonth ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1)) : monthEnd;
+    asof.textContent = 'As of ' + displayDate.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'});
+  } else if (DATA.last_refresh_at) {
+    const d = new Date(DATA.last_refresh_at);
+    asof.textContent = 'Refreshed ' + d.toLocaleString('en-US', {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  } else {
+    asof.textContent = 'No data yet';
+  }
+}
+
+// Copy the hero card (headline + change + stats + chart) to the clipboard
+// as a PNG, so it can be pasted straight into a slide deck. Falls back to
+// a PNG download if the browser won't allow image clipboard writes.
+async function copyHeroToClipboard() {
+  const btn = document.getElementById('copy-chart-btn');
+  const label = document.getElementById('copy-chart-label');
+  const area = document.getElementById('capture-area');
+  if (!area || typeof html2canvas === 'undefined') {
+    if (label) label.textContent = 'Unavailable';
+    return;
+  }
+  const original = label.textContent;
+  label.textContent = 'Copying…';
+  btn.disabled = true;
+
+  // Reveal the capture-only header (org + date) just for the render.
+  area.classList.add('capturing');
+  try {
+    const canvas = await html2canvas(area, {
+      backgroundColor: getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#FAF7F2',
+      scale: 2,                 // retina-quality for slides
+      logging: false,
+      useCORS: true,
+    });
+    area.classList.remove('capturing');
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if (!blob) throw new Error('Could not rasterize');
+
+    // Try clipboard image write first.
+    let copied = false;
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+      } catch (e) {
+        copied = false; // fall through to download
+      }
+    }
+
+    if (copied) {
+      btn.classList.add('copied');
+      label.textContent = 'Copied ✓';
+    } else {
+      // Fallback: download the PNG.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = 'claude-spend-' + stamp + '.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      btn.classList.add('copied');
+      label.textContent = 'Downloaded ✓';
+    }
+  } catch (e) {
+    area.classList.remove('capturing');
+    btn.classList.add('copy-error');
+    label.textContent = 'Failed — retry';
+    console.error('copyHeroToClipboard:', e);
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => {
+      btn.classList.remove('copied', 'copy-error');
+      label.textContent = original;
+    }, 2200);
+  }
+}
+
+// =================================================================
+// PAGE 1 — Monthly Overview (the CFO view)
+// =================================================================
+function renderOverview() {
+  const container = document.getElementById('overview-content');
+  const series = DATA.month_series || [];
+  if (!series.length) {
+    container.innerHTML =
+      '<div class="empty">No spend data yet. From the <strong>Claude Spend</strong> menu, run <code>Backfill full history</code> to pull historical data, then <code>Install daily trigger</code> to keep it current.</div>';
+    return;
+  }
+  const latest = DATA.kpis.latest_month;
+  const prev = DATA.kpis.prev_month;
+  let momPctText = '';
+  let momClass = '';
+  if (latest && prev && prev.cost > 0) {
+    const change = (latest.cost - prev.cost) / prev.cost;
+    const pct = (change * 100).toFixed(1);
+    momPctText = (change >= 0 ? '+' : '') + pct + '% vs prior month';
+    momClass = change >= 0 ? 'up' : 'down';
+  }
+  const ytdSum = series.reduce((s, m) => s + m.cost, 0);
+  const avgMonth = series.length ? ytdSum / series.length : 0;
+
+  const heroHeadline = `Spend overview, <em>by the numbers</em>`;
+
+  const changeArrow = momClass === 'up' ? '▲' : momClass === 'down' ? '▼' : '';
+  const changePill = momPctText
+    ? `<div class="change ${momClass}"><span>${changeArrow}</span>${momPctText.replace(/ vs prior month$/, '')}</div>
+       <div class="change-detail">vs ${prev ? fmtMonth(prev.month) + ' (' + fmtMoney0(prev.cost) + ')' : 'prior period'}</div>`
+    : '';
+
+  container.innerHTML = `
+    <div id="capture-area">
+      <div class="capture-header">
+        <div class="capture-org"><span class="capture-dot"></span> Company · Claude Enterprise</div>
+        <div class="capture-date" id="capture-date"></div>
+      </div>
+      <div class="hero">
+        <div class="hero-left">
+          <h1>${heroHeadline}</h1>
+          <p class="hero-sub">Company-wide net USD across all Claude products.</p>
+        </div>
+        <div class="hero-num">
+          <div class="label">${latest ? fmtMonth(latest.month).replace(/'(\d\d)$/, ' 20$1') : 'Latest'} — Total Spend</div>
+          <div class="big">${latest ? fmtMoney0(latest.cost) : '—'}</div>
+          ${changePill}
+        </div>
+      </div>
+
+      <div class="secondary-stats">
+        <div class="stat">
+          <div class="label">Tracked Total</div>
+          <div class="value">${fmtMoney0(DATA.kpis.total_all_time)}</div>
+          <div class="sub">${DATA.kpis.month_count} months · since ${series.length ? fmtMonth(series[0].month) : '—'}</div>
+        </div>
+        <div class="stat">
+          <div class="label">Monthly Average</div>
+          <div class="value">${fmtMoney0(avgMonth)}</div>
+          <div class="sub">trailing ${series.length}-mo</div>
+        </div>
+        <div class="stat">
+          <div class="label">Active Users</div>
+          <div class="value">${DATA.kpis.user_count || 0}</div>
+          <div class="sub">in ${latest ? fmtMonth(latest.month) : 'latest'}</div>
+        </div>
+      </div>
+
+      <div class="chart-card-quiet">
+        <h2>Monthly trend</h2>
+        <div class="chart-wrap" id="month-chart"></div>
+      </div>
+    </div>
+  `;
+  // Mirror the top-bar "as of" date into the capture header so the
+  // exported image is self-contained for slides.
+  const cd = document.getElementById('capture-date');
+  if (cd) cd.textContent = (document.getElementById('asof-date') || {}).textContent || '';
+  drawMonthlyChart(series, avgMonth);
+}
+
+function drawMonthlyChart(series, avgMonth) {
+  const host = document.getElementById('month-chart');
+  const W = host.clientWidth || 1200;
+  const H = host.clientHeight || 360;
+  const pad = { top: 30, right: 30, bottom: 40, left: 70 };
+  const innerW = W - pad.left - pad.right;
+  const innerH = H - pad.top - pad.bottom;
+
+  const max = Math.max.apply(null, series.map(s => s.cost));
+  const yMax = niceCeil(max * 1.15);
+
+  // 4 y-ticks — fewer, cleaner. Dashed grid lines so they recede.
+  const yTicks = 4;
+  let gridLines = '';
+  let yLabels = '';
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yMax * i / yTicks;
+    const y = pad.top + innerH - (innerH * i / yTicks);
+    gridLines += `<line class="grid-line" x1="${pad.left}" y1="${y}" x2="${W - pad.right}" y2="${y}"></line>`;
+    yLabels += `<text class="y-tick" x="${pad.left - 10}" y="${y + 3}">${fmtMoney0(v)}</text>`;
+  }
+
+  // Average reference line — subtle dashed mid-tone.
+  let avgLine = '';
+  if (avgMonth && avgMonth > 0 && avgMonth < yMax) {
+    const avgY = pad.top + innerH - innerH * (avgMonth / yMax);
+    avgLine = `<line class="avg-line" x1="${pad.left}" y1="${avgY}" x2="${W - pad.right}" y2="${avgY}"></line>
+               <text class="avg-label" x="${W - pad.right - 4}" y="${avgY - 4}" text-anchor="end">${series.length}-mo avg ${fmtMoney0(avgMonth)}</text>`;
+  }
+
+  // Bars — all share accent orange; latest is full opacity, prior months
+  // are dimmed so the eye reads "where we are now, where we came from".
+  const barGap = 0.38;
+  const slot = innerW / series.length;
+  const barW = slot * (1 - barGap);
+  let bars = '';
+  series.forEach((s, i) => {
+    const x = pad.left + slot * i + (slot - barW) / 2;
+    const h = innerH * (s.cost / yMax);
+    const y = pad.top + innerH - h;
+    const isLatest = i === series.length - 1;
+    const opacity = isLatest ? 1 : 0.34;
+    bars += `<rect class="bar" x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" fill="#D9531E" opacity="${opacity}">
+      <title>${fmtMonth(s.month)}: ${fmtMoney(s.cost)}</title>
+    </rect>`;
+    // Label position: inside the bar if tall enough (white text), above if short.
+    if (h > 38) {
+      bars += `<text class="bar-label-inside" x="${x + barW/2}" y="${y + 20}">${fmtMoney0(s.cost)}</text>`;
+    } else {
+      bars += `<text class="bar-label" x="${x + barW/2}" y="${y - 8}">${fmtMoney0(s.cost)}</text>`;
+    }
+    bars += `<text class="x-tick" x="${x + barW/2}" y="${pad.top + innerH + 22}">${fmtMonth(s.month)}</text>`;
+  });
+
+  host.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    ${gridLines}
+    ${avgLine}
+    <line class="axis-line" x1="${pad.left}" y1="${pad.top + innerH}" x2="${W - pad.right}" y2="${pad.top + innerH}"></line>
+    ${bars}
+    ${yLabels}
+  </svg>`;
+}
+
+function niceCeil(n) {
+  if (n <= 0) return 100;
+  const pow = Math.pow(10, Math.floor(Math.log10(n)));
+  const norm = n / pow;
+  let nice;
+  if (norm <= 1) nice = 1;
+  else if (norm <= 2) nice = 2;
+  else if (norm <= 5) nice = 5;
+  else nice = 10;
+  return nice * pow;
+}
+
+// =================================================================
+// PAGE 2 — Products
+// =================================================================
+function renderProducts() {
+  document.getElementById('nav-prod-count').textContent = '(' + (DATA.kpis.product_count || 0) + ')';
+  const container = document.getElementById('products-content');
+  const monthlyAll = DATA.product_monthly || [];
+  const products = DATA.products || [];
+  if (!monthlyAll.length) {
+    container.innerHTML = '<div class="empty">No product data yet.</div>';
+    return;
+  }
+
+  // Scope the monthly series to the active period.
+  const scope = monthsForPeriod();
+  const scopeSet = {};
+  scope.forEach(m => { scopeSet[m] = true; });
+  const monthly = monthlyAll.filter(row => scopeSet[row.month]);
+
+  // Windowed totals per product.
+  const totalsMap = {};
+  products.forEach(p => { totalsMap[p] = 0; });
+  monthly.forEach(row => {
+    products.forEach(p => { totalsMap[p] += row[p] || 0; });
+  });
+  const totals = products
+    .map(p => ({ product: p, cost: Math.round(totalsMap[p] * 100) / 100 }))
+    .filter(p => p.cost > 0)
+    .sort((a, b) => b.cost - a.cost);
+  const grandTotal = totals.reduce((s, p) => s + p.cost, 0);
+
+  let totalsHtml = `<div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Total by <em>product</em></h2>
+        <div class="desc">Net spend per product surface in the selected window.</div>
+      </div>
+      <div class="period-display">${periodLabel()}<span class="period-total">${fmtMoney0(grandTotal)}</span></div>
+    </div>
+    ${periodSelectorHtml('prod')}
+    <table><thead><tr><th>Product</th><th class="num">Spend</th><th class="num">% of total</th></tr></thead><tbody>`;
+  totals.forEach(p => {
+    const pct = grandTotal > 0 ? (p.cost / grandTotal * 100).toFixed(1) : '0.0';
+    totalsHtml += `<tr>
+      <td><span class="legend-sw" style="display:inline-block;vertical-align:middle;margin-right:8px;background:${productColor(p.product)}"></span><strong>${productLabel(p.product)}</strong></td>
+      <td class="num spend-cell">${fmtMoney(p.cost)}</td>
+      <td class="num">${pct}%</td>
+    </tr>`;
+  });
+  totalsHtml += '</tbody></table></div>';
+
+  // Stacked over-time chart — also scoped to the window. (For "This Month"
+  // it's a single bar; for YTD/All time it spans those months.)
+  let stackedHtml = '<div class="card"><div class="card-head"><div><h2>Product mix <em>over time</em></h2><div class="desc">Monthly spend stacked by product. Hover segments for detail.</div></div><div class="meta">' + monthly.length + (monthly.length === 1 ? ' month' : ' months') + '</div></div>';
+  stackedHtml += '<div class="chart-wrap" style="height:380px" id="stacked-chart"></div>';
+  stackedHtml += '<div class="legend">';
+  totals.forEach(p => {
+    stackedHtml += `<div class="legend-item"><div class="legend-sw" style="background:${productColor(p.product)}"></div><span class="legend-name">${productLabel(p.product)}</span><span class="legend-val">${fmtMoney0(p.cost)}</span></div>`;
+  });
+  stackedHtml += '</div></div>';
+
+  container.innerHTML = totalsHtml + stackedHtml;
+  drawStacked(monthly, products);
+
+  wirePeriodSelector('prod');
+}
+
+function drawStacked(monthly, products) {
+  const host = document.getElementById('stacked-chart');
+  const W = host.clientWidth || 1200;
+  const H = host.clientHeight || 380;
+  const pad = { top: 20, right: 20, bottom: 36, left: 70 };
+  const innerW = W - pad.left - pad.right;
+  const innerH = H - pad.top - pad.bottom;
+  if (!monthly.length) { host.innerHTML = ''; return; }
+
+  // Order products by total (largest first → bottom of stack)
+  const totals = {};
+  products.forEach(p => { totals[p] = 0; });
+  monthly.forEach(m => { products.forEach(p => { totals[p] += m[p] || 0; }); });
+  const ordered = products.slice().sort((a, b) => totals[b] - totals[a]);
+
+  const monthTotals = monthly.map(m => products.reduce((s, p) => s + (m[p] || 0), 0));
+  const max = Math.max.apply(null, monthTotals);
+  const yMax = niceCeil(max * 1.08);
+
+  const yTicks = 5;
+  let gridLines = '';
+  let yLabels = '';
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yMax * i / yTicks;
+    const y = pad.top + innerH - (innerH * i / yTicks);
+    gridLines += `<line class="grid-line" x1="${pad.left}" y1="${y}" x2="${W - pad.right}" y2="${y}"></line>`;
+    yLabels += `<text class="y-tick" x="${pad.left - 10}" y="${y + 3}">${fmtMoney0(v)}</text>`;
+  }
+
+  const barGap = 0.28;
+  const slot = innerW / monthly.length;
+  const barW = slot * (1 - barGap);
+  let bars = '';
+  monthly.forEach((m, i) => {
+    const x = pad.left + slot * i + (slot - barW) / 2;
+    let acc = 0;
+    ordered.forEach(p => {
+      const v = m[p] || 0;
+      if (v === 0) return;
+      const h = innerH * (v / yMax);
+      const yTop = pad.top + innerH - innerH * ((acc + v) / yMax);
+      bars += `<rect class="seg" x="${x}" y="${yTop}" width="${barW}" height="${h}" fill="${productColor(p)}">
+        <title>${productLabel(p)} — ${fmtMonth(m.month)}: ${fmtMoney(v)}</title>
+      </rect>`;
+      acc += v;
+    });
+    const total = monthTotals[i];
+    const totalY = pad.top + innerH - innerH * (total / yMax);
+    bars += `<text class="bar-label" x="${x + barW/2}" y="${totalY - 6}">${fmtMoney0(total)}</text>`;
+    bars += `<text class="x-tick" x="${x + barW/2}" y="${pad.top + innerH + 18}">${fmtMonth(m.month)}</text>`;
+  });
+
+  host.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    ${gridLines}
+    <line class="axis-line" x1="${pad.left}" y1="${pad.top + innerH}" x2="${W - pad.right}" y2="${pad.top + innerH}"></line>
+    ${bars}
+    ${yLabels}
+  </svg>`;
+}
+
+// =================================================================
+// PAGE 3 — Users
+// =================================================================
+// =================================================================
+// Shared period state for Users + Departments
+//   period: 'month' | 'ytd' | 'all'
+// =================================================================
+let activePeriod = 'month';   // default to latest month
+let userSort = 'cost';
+let userSortDir = 'desc';
+let userSearch = '';
+let deptSort = 'cost';
+let deptSearch = '';
+let expandedUser = null;      // email of the currently expanded user row
+let expandedDept = null;      // name of the currently expanded department row
+
+// Given the active period, return the set of month-keys in scope.
+// Uses the union of months present in user data and product data so it's
+// correct regardless of which page calls it.
+function monthsForPeriod() {
+  const set = {};
+  ((DATA.users && DATA.users.months) || []).forEach(m => { set[m] = true; });
+  ((DATA.product_monthly) || []).forEach(row => { if (row.month) set[row.month] = true; });
+  const months = Object.keys(set).sort();
+  if (!months.length) return [];
+  if (activePeriod === 'all') return months.slice();
+  if (activePeriod === 'ytd') {
+    const latest = months[months.length - 1];
+    const year = latest.slice(0, 4);
+    return months.filter(m => m.slice(0, 4) === year);
+  }
+  // 'month' → just the latest
+  return [months[months.length - 1]];
+}
+
+// Aggregate one user's spend over the in-scope months.
+// Returns {cost, by_product:{}, monthly:[{month,cost}]}.
+function aggregateUser(u, scopeMonths) {
+  let cost = 0;
+  const by_product = {};
+  const monthly = [];
+  scopeMonths.forEach(m => {
+    const rec = u.months[m];
+    const c = rec ? rec.cost : 0;
+    monthly.push({ month: m, cost: c });
+    if (rec) {
+      cost += rec.cost;
+      Object.keys(rec.by_product).forEach(p => {
+        by_product[p] = (by_product[p] || 0) + rec.by_product[p];
+      });
+    }
+  });
+  return { cost: Math.round(cost * 100) / 100, by_product, monthly };
+}
+
+// Human label for the active period.
+function periodLabel() {
+  const set = {};
+  ((DATA.users && DATA.users.months) || []).forEach(m => { set[m] = true; });
+  ((DATA.product_monthly) || []).forEach(row => { if (row.month) set[row.month] = true; });
+  const months = Object.keys(set).sort();
+  if (!months.length) return '—';
+  const latest = months[months.length - 1];
+  if (activePeriod === 'month') return fmtMonth(latest);
+  if (activePeriod === 'ytd') return latest.slice(0, 4) + ' YTD';
+  return 'All time (' + fmtMonth(months[0]) + ' – ' + fmtMonth(latest) + ')';
+}
+
+// Build the shared period selector markup. `idPrefix` keeps button IDs
+// unique between the two pages even though they share state.
+function periodSelectorHtml(idPrefix) {
+  const opts = [['month', 'This Month'], ['ytd', 'YTD'], ['all', 'All time']];
+  const btns = opts.map(([v, lbl]) =>
+    `<button class="period-btn ${activePeriod === v ? 'active' : ''}" data-period="${v}">${lbl}</button>`
+  ).join('');
+  return `<div class="period-selector" id="${idPrefix}-period">
+    <span class="period-label">Showing</span>
+    ${btns}
+  </div>`;
+}
+
+// Wire the selector buttons on whichever page is active.
+function wirePeriodSelector(idPrefix, rerender) {
+  const host = document.getElementById(idPrefix + '-period');
+  if (!host) return;
+  host.querySelectorAll('.period-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activePeriod = btn.dataset.period;
+      expandedUser = null;
+      expandedDept = null;
+      // Re-render all period-aware pages so they stay in sync; only the
+      // visible one matters visually, but this keeps state consistent
+      // when switching tabs.
+      renderProducts();
+      renderUsers();
+      renderDepartments();
+    });
+  });
+}
+
+// =================================================================
+// PAGE 3 — Users
+// =================================================================
+function renderUsers() {
+  const u = DATA.users || { list: [] };
+  document.getElementById('nav-user-count').textContent = '(' + u.list.length + ')';
+  const container = document.getElementById('users-content');
+  if (!u.list || !u.list.length) {
+    container.innerHTML = '<div class="empty">No per-user data yet. Run a backfill from the menu.</div>';
+    return;
+  }
+  const scope = monthsForPeriod();
+  // Aggregate every user over scope, attach to a working list.
+  const agg = u.list.map(x => {
+    const a = aggregateUser(x, scope);
+    return {
+      user_email: x.user_email, name: x.name, department: x.department,
+      cost: a.cost, by_product: a.by_product, monthly: a.monthly,
+    };
+  }).filter(x => x.cost > 0);
+
+  const total = agg.reduce((s, x) => s + x.cost, 0);
+  const sorted = agg.slice().sort((a, b) => b.cost - a.cost);
+  const top10 = sorted.slice(0, 10).reduce((s, x) => s + x.cost, 0);
+  const pct = total > 0 ? Math.round(top10 / total * 100) : 0;
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Per-user <em>spend</em></h2>
+          <div class="desc">${agg.length} users active in this window · top 10 = ${pct}% of spend · click a row for monthly trend</div>
+        </div>
+        <div class="period-display">${periodLabel()}<span class="period-total">${fmtMoney0(total)}</span></div>
+      </div>
+      ${periodSelectorHtml('user')}
+      <div class="controls">
+        <input type="text" class="search" id="user-search" placeholder="Search name or email…" value="${userSearch ? userSearch.replace(/"/g,'&quot;') : ''}">
+        <button class="sort-btn active" id="user-sort-btn">Spend ${userSortDir === 'desc' ? '↓' : '↑'}</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>User</th><th>Spend breakdown</th><th class="num">Spend</th></tr>
+        </thead>
+        <tbody id="user-tbody"></tbody>
+      </table>
+    </div>
+  `;
+  window._userAgg = agg; // stash for the table renderer
+  renderUserTable();
+
+  wirePeriodSelector('user');
+  document.getElementById('user-search').addEventListener('input', e => {
+    userSearch = e.target.value.toLowerCase().trim();
+    renderUserTable();
+  });
+  document.getElementById('user-sort-btn').addEventListener('click', () => {
+    userSortDir = userSortDir === 'desc' ? 'asc' : 'desc';
+    document.getElementById('user-sort-btn').textContent = 'Spend ' + (userSortDir === 'desc' ? '↓' : '↑');
+    renderUserTable();
+  });
+}
+
+function renderUserTable() {
+  const agg = window._userAgg || [];
+  let list = agg.filter(x => {
+    if (!userSearch) return true;
+    return (x.name || '').toLowerCase().includes(userSearch) || (x.user_email || '').toLowerCase().includes(userSearch);
+  });
+  list.sort((a, b) => userSortDir === 'desc' ? b.cost - a.cost : a.cost - b.cost);
+
+  const showSpark = activePeriod !== 'month'; // sparkline only meaningful across >1 month
+
+  let html = '';
+  list.forEach((x, i) => {
+    const isExpanded = expandedUser === x.user_email;
+    html += `<tr class="user-row-main${showSpark ? ' clickable' : ''}" data-email="${x.user_email}">
+      <td class="rank-cell">${String(i + 1).padStart(2, '0')}</td>
+      <td><div class="name-cell">${showSpark ? (isExpanded ? '▾ ' : '▸ ') : ''}${x.name || x.user_email}</div><div class="email-cell">${x.user_email}</div></td>
+      <td>${renderBreakdown(x.by_product)}</td>
+      <td class="num spend-cell">${fmtMoney(x.cost)}</td>
+    </tr>`;
+    if (isExpanded && showSpark) {
+      html += `<tr class="user-row-detail"><td></td><td colspan="3">${renderMonthlySpark(x.monthly)}</td></tr>`;
+    }
+  });
+  const tbody = document.getElementById('user-tbody');
+  tbody.innerHTML = html;
+
+  if (showSpark) {
+    tbody.querySelectorAll('.user-row-main.clickable').forEach(row => {
+      row.addEventListener('click', () => {
+        const email = row.dataset.email;
+        expandedUser = (expandedUser === email) ? null : email;
+        renderUserTable();
+      });
+    });
+  }
+}
+
+// Mini monthly bar chart for an expanded user row.
+function renderMonthlySpark(monthly) {
+  if (!monthly || !monthly.length) return '';
+  const max = Math.max.apply(null, monthly.map(m => m.cost));
+  if (max <= 0) return '<div class="spark-empty">No spend in this window.</div>';
+  const bars = monthly.map(m => {
+    const h = Math.max(2, Math.round((m.cost / max) * 60));
+    return `<div class="spark-col">
+      <div class="spark-val">${m.cost > 0 ? fmtMoney0(m.cost) : ''}</div>
+      <div class="spark-bar" style="height:${h}px" title="${fmtMonth(m.month)}: ${fmtMoney(m.cost)}"></div>
+      <div class="spark-month">${fmtMonth(m.month)}</div>
+    </div>`;
+  }).join('');
+  return `<div class="spark-wrap"><div class="spark-title">Monthly spend</div><div class="spark-row">${bars}</div></div>`;
+}
+
+// =================================================================
+// PAGE 4 — Departments
+// =================================================================
+function renderDepartments() {
+  const u = DATA.users || { list: [] };
+  const container = document.getElementById('departments-content');
+  if (!u.list || !u.list.length) {
+    document.getElementById('nav-dept-count').textContent = '(0)';
+    container.innerHTML = '<div class="empty">No department data yet. Make sure the <strong>Users</strong> tab has at least an Email and Department column, then reopen the dashboard.</div>';
+    return;
+  }
+  const scope = monthsForPeriod();
+
+  // Roll users up into departments over the active window.
+  // Users with no department (e.g. test accounts not in the Users tab)
+  // are excluded from the Departments view entirely — they'd otherwise
+  // pool into an "Unassigned" bucket that clutters the team breakdown.
+  const deptMap = {};
+  u.list.forEach(x => {
+    const a = aggregateUser(x, scope);
+    if (a.cost <= 0) return; // only count users with spend in window
+    const dept = (x.department || '').trim();
+    if (!dept) return;       // skip users without a mapped department
+    if (!deptMap[dept]) deptMap[dept] = { department: dept, cost: 0, headcount: 0, by_product: {}, users: [] };
+    const d = deptMap[dept];
+    d.cost += a.cost;
+    d.headcount += 1;
+    d.users.push({ name: x.name || x.user_email, email: x.user_email, cost: a.cost, by_product: a.by_product });
+    Object.keys(a.by_product).forEach(p => { d.by_product[p] = (d.by_product[p] || 0) + a.by_product[p]; });
+  });
+  const list = Object.keys(deptMap).map(k => {
+    const d = deptMap[k];
+    d.cost = Math.round(d.cost * 100) / 100;
+    d.cost_per_person = d.headcount > 0 ? Math.round((d.cost / d.headcount) * 100) / 100 : 0;
+    d.users.sort((a, b) => b.cost - a.cost); // top spender first
+    return d;
+  }).sort((a, b) => b.cost - a.cost);
+
+  document.getElementById('nav-dept-count').textContent = '(' + list.length + ')';
+
+  if (!list.length) {
+    container.innerHTML = '<div class="empty">No department spend in this window.</div>';
+    return;
+  }
+
+  const totalCost = list.reduce((s, x) => s + x.cost, 0);
+  const totalHeadcount = list.reduce((s, x) => s + x.headcount, 0);
+  const top = list[0];
+
+  container.innerHTML = `
+    <div class="kpi-strip">
+      <div class="kpi">
+        <div class="label">Top Department</div>
+        <div class="value" style="font-size: 28px; line-height: 1.05;">${top.department}</div>
+        <div class="sub">${fmtMoney(top.cost)} · ${top.headcount} ${top.headcount === 1 ? 'person' : 'people'}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Departments</div>
+        <div class="value">${list.length}</div>
+        <div class="sub">with spend in window</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Attributed Headcount</div>
+        <div class="value">${totalHeadcount}</div>
+        <div class="sub">${DATA.users.directory_size} in directory</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Avg / Person</div>
+        <div class="value">${fmtMoney0(totalHeadcount > 0 ? totalCost / totalHeadcount : 0)}</div>
+        <div class="sub">across all departments</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Department <em>spend</em></h2>
+          <div class="desc">Spend per person normalizes for team size · click a department to see its members</div>
+        </div>
+        <div class="period-display">${periodLabel()}<span class="period-total">${fmtMoney0(totalCost)}</span></div>
+      </div>
+      ${periodSelectorHtml('dept')}
+      <div class="controls">
+        <input type="text" class="search" id="dept-search" placeholder="Search department…" value="${deptSearch ? deptSearch.replace(/"/g,'&quot;') : ''}">
+        <button class="sort-btn dept-sort active" data-dept-sort="cost">Spend ↓</button>
+        <button class="sort-btn dept-sort" data-dept-sort="cost_per_person">$ / person ↓</button>
+        <button class="sort-btn dept-sort" data-dept-sort="headcount">Headcount ↓</button>
+        <button class="sort-btn dept-sort" data-dept-sort="name">Name A–Z</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Department</th><th class="num">People</th><th>Spend breakdown</th><th class="num">$ / Person</th><th class="num">Spend</th></tr>
+        </thead>
+        <tbody id="dept-tbody"></tbody>
+      </table>
+    </div>
+  `;
+  window._deptList = list;
+  renderDeptTable();
+
+  wirePeriodSelector('dept');
+  document.getElementById('dept-search').addEventListener('input', e => {
+    deptSearch = e.target.value.toLowerCase().trim();
+    renderDeptTable();
+  });
+  document.querySelectorAll('.dept-sort').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.dept-sort').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      deptSort = btn.dataset.deptSort;
+      renderDeptTable();
+    });
+  });
+}
+
+function renderDeptTable() {
+  const list = (window._deptList || []).slice().filter(x => {
+    if (!deptSearch) return true;
+    return (x.department || '').toLowerCase().includes(deptSearch);
+  });
+  if (deptSort === 'cost') list.sort((a, b) => b.cost - a.cost);
+  else if (deptSort === 'cost_per_person') list.sort((a, b) => b.cost_per_person - a.cost_per_person);
+  else if (deptSort === 'headcount') list.sort((a, b) => b.headcount - a.headcount);
+  else if (deptSort === 'name') list.sort((a, b) => (a.department || '').localeCompare(b.department || ''));
+
+  let html = '';
+  list.forEach((d, i) => {
+    const isExpanded = expandedDept === d.department;
+    html += `<tr class="dept-row-main clickable" data-dept="${(d.department || '').replace(/"/g, '&quot;')}">
+      <td class="rank-cell">${String(i + 1).padStart(2, '0')}</td>
+      <td><div class="name-cell">${isExpanded ? '▾ ' : '▸ '}${d.department}</div></td>
+      <td class="num">${d.headcount}</td>
+      <td>${renderBreakdown(d.by_product)}</td>
+      <td class="num">${fmtMoney(d.cost_per_person)}</td>
+      <td class="num spend-cell">${fmtMoney(d.cost)}</td>
+    </tr>`;
+    if (isExpanded) {
+      html += `<tr class="dept-row-detail"><td></td><td colspan="5">${renderDeptMembers(d)}</td></tr>`;
+    }
+  });
+  const tbody = document.getElementById('dept-tbody');
+  tbody.innerHTML = html;
+
+  tbody.querySelectorAll('.dept-row-main.clickable').forEach(row => {
+    row.addEventListener('click', () => {
+      const dept = row.dataset.dept;
+      expandedDept = (expandedDept === dept) ? null : dept;
+      renderDeptTable();
+    });
+  });
+}
+
+// Member list shown when a department row is expanded.
+function renderDeptMembers(d) {
+  if (!d.users || !d.users.length) return '<div class="dept-members-empty">No members with spend in this window.</div>';
+  let rows = d.users.map((m, i) => {
+    return `<tr>
+      <td class="rank-cell">${String(i + 1).padStart(2, '0')}</td>
+      <td><div class="name-cell">${m.name}</div><div class="email-cell">${m.email}</div></td>
+      <td>${renderBreakdown(m.by_product)}</td>
+      <td class="num spend-cell">${fmtMoney(m.cost)}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="dept-members">
+    <div class="dept-members-title">${d.department} — ${d.headcount} ${d.headcount === 1 ? 'member' : 'members'} · ${fmtMoney(d.cost)} total</div>
+    <table class="dept-members-table">
+      <thead><tr><th>#</th><th>User</th><th>Spend breakdown</th><th class="num">Spend</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+// =================================================================
+// PAGE 5 — Gemini adoption (Google Workspace) — USAGE, NOT COST
+// =================================================================
+let gemUserSort = 'events';
+let gemSearch = '';
+function renderGemini() {
+  const g = DATA.gemini || null;
+  const container = document.getElementById('gemini-content');
+  const countEl = document.getElementById('nav-gem-count');
+
+  if (!g || !g.users || !g.users.length) {
+    if (countEl) countEl.textContent = '';
+    let msg;
+    if (g && g.refresh_status === 'error') {
+      msg = 'Gemini usage couldn\'t be fetched. The account running the script needs the Google Workspace <strong>Reports</strong> admin privilege, and the Admin SDK Reports advanced service must be enabled. Then run <strong>Claude Spend → Refresh Gemini usage</strong>.';
+    } else {
+      msg = 'No Gemini usage data yet. Run <strong>Claude Spend → Refresh Gemini usage</strong> from the menu. (First time: enable the Admin SDK Reports advanced service in the Apps Script editor under Services.)';
+    }
+    container.innerHTML = '<div class="empty">' + msg + '</div>';
+    return;
+  }
+
+  if (countEl) countEl.textContent = '(' + g.active_users + ')';
+
+  const totalEvents = g.total_events || 0;
+
+  container.innerHTML = `
+    <div class="gem-note">Figures cover a <strong>rolling 30-day window</strong>. Sourced from the Workspace audit log (raw Gemini action events), so counts are higher than — and ranked differently from — the Admin console's "Overall usage" report, which uses a separate metric Google doesn't expose via API.</div>
+
+    <div class="kpi-strip">
+      <div class="kpi">
+        <div class="label">Active Users</div>
+        <div class="value">${g.active_users}</div>
+        <div class="sub">used Gemini in last 30 days</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Total Actions</div>
+        <div class="value">${fmtCompact(totalEvents)}</div>
+        <div class="sub">last 30 days</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Actions / User</div>
+        <div class="value">${g.active_users > 0 ? Math.round(totalEvents / g.active_users) : 0}</div>
+        <div class="sub">average engagement</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><h2>Active <em>users</em></h2><div class="desc">Rolling 30-day window. Ranked by Gemini actions; active days = distinct days used.</div></div><div class="meta">${g.users.length} users</div></div>
+      <div class="controls">
+        <input type="text" class="search" id="gem-search" placeholder="Search name or email…">
+        <button class="sort-btn active" data-gem-sort="events">Actions ↓</button>
+        <button class="sort-btn" data-gem-sort="active_days">Active days ↓</button>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>User</th><th class="num">Active days</th><th class="num">Actions</th></tr></thead>
+        <tbody id="gem-tbody"></tbody>
+      </table>
+    </div>
+  `;
+  renderGemTable();
+  document.getElementById('gem-search').addEventListener('input', e => {
+    gemSearch = e.target.value.toLowerCase().trim();
+    renderGemTable();
+  });
+  document.querySelectorAll('[data-gem-sort]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-gem-sort]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      gemUserSort = btn.dataset.gemSort;
+      renderGemTable();
+    });
+  });
+}
+
+function renderGemTable() {
+  const g = DATA.gemini;
+  let list = g.users.slice().filter(x => {
+    if (!gemSearch) return true;
+    return (x.name || '').toLowerCase().includes(gemSearch) || (x.user_email || '').toLowerCase().includes(gemSearch);
+  });
+  if (gemUserSort === 'events') list.sort((a, b) => b.events - a.events);
+  else if (gemUserSort === 'active_days') list.sort((a, b) => b.active_days - a.active_days);
+
+  let html = '';
+  list.forEach((u, i) => {
+    html += `<tr>
+      <td class="rank-cell">${String(i + 1).padStart(2, '0')}</td>
+      <td><div class="name-cell">${u.name || u.user_email}</div><div class="email-cell">${u.user_email}</div></td>
+      <td class="num">${u.active_days}</td>
+      <td class="num spend-cell">${fmtInt(u.events)}</td>
+    </tr>`;
+  });
+  document.getElementById('gem-tbody').innerHTML = html;
+}
+</script>
+</body>
+</html>
