@@ -1,11 +1,13 @@
-# Overview
+# Claude Spend Dashboard
 
-![Overview dashboard](https://github.com/user-attachments/assets/7d17e47c-ce8b-41c8-bc56-45c88a341558)
+## Overview
 
-## User metric
+<img width="1299" alt="Overview dashboard" src="github/assets/overview.png">
 
-![User metric](https://github.com/user-attachments/assets/5421d29a-8c1e-4438-a0d8-26700791d5ea)
+## User Metrics
 
-## Department
+<img width="448" alt="User metrics" src="github/assets/user-metrics.png">
 
-![Department breakdown](https://github.com/user-attachments/assets/2b2dca94-42f2-41bc-b2f2-7191f639a3cb)
+## Per-User Spend
+
+<img width="719" alt="Per-user spend" src="github/assets/per-user-spend.png">
