@@ -1,0 +1,313 @@
+// --- CONFIGURATION ---
+// Credentials live in File > Project Settings > Script Properties (never in code):
+//   FEDEX_CLIENT_ID, FEDEX_CLIENT_SECRET, UPS_CLIENT_ID, UPS_CLIENT_SECRET
+// ---------------------------------------------------
+
+const FEDEX_AUTH_URL = "https://apis.fedex.com/oauth/token";
+const FEDEX_TRACKING_URL = "https://apis.fedex.com/track/v1/trackingnumbers";
+
+const UPS_AUTH_URL = "https://onlinetools.ups.com/security/v1/oauth/token";
+const UPS_TRACKING_URL = "https://onlinetools.ups.com/api/track/v1/details/";
+
+// Optional friendly mapping (FedEx status codes)
+const STATUS_MAP = {
+  "OC": "Label Created",
+  "PU": "Picked up",
+  "IT": "On the way",
+  "FD": "At destination hub",
+  "OD": "Out for delivery",
+  "PM": "Ready for pickup",
+  "DL": "Delivered",
+  "SE": "Delivery issue"
+};
+
+// Fallback mapping for UPS activity status types, used only when UPS sends no description
+const UPS_STATUS_TYPE_MAP = {
+  "I": "On the way",
+  "D": "Delivered",
+  "X": "Delivery issue",
+  "P": "Picked up",
+  "M": "Label Created",
+  "MV": "On the way",
+  "RS": "Returning to shipper",
+  "DO": "Out for delivery",
+  "DD": "Delivered",
+  "NA": "Status not available"
+};
+
+// UPS returns descriptions in ALL CAPS ("DELIVERED"); convert to sentence case so both
+// carriers read the same in the sheet. Mixed-case input is left untouched.
+function toSentenceCase_(text) {
+  const s = String(text || "").trim();
+  if (!s || s !== s.toUpperCase()) return s;
+  return s.toLowerCase()
+    .replace(/^[a-z]/, c => c.toUpperCase())
+    .replace(/\bups\b/g, "UPS");
+}
+
+// Read a required credential from Script Properties
+function getScriptProperty_(key) {
+  const value = PropertiesService.getScriptProperties().getProperty(key);
+  if (!value) throw new Error("Missing script property: " + key);
+  return value.trim();
+}
+
+// Normalize any incoming cell value to a consistent tracking-number string
+function normalizeTN(v) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim().replace(/[\s-]+/g, "").toUpperCase();
+}
+
+function isFedExTrackingNumber(v) {
+  const tn = normalizeTN(v);
+  if (!tn) return false;
+  // FedEx: 12, 15, 20, 22 digits or 96 + 20 digits
+  const fedexRegex = /^(?:\d{12}|\d{15}|\d{20}|\d{22}|96\d{20})$/;
+  return fedexRegex.test(tn);
+}
+
+function isUpsTrackingNumber(v) {
+  const tn = normalizeTN(v);
+  if (!tn) return false;
+  // UPS: 1Z + 16 alphanumeric, "T" + 10 alphanumeric (UPS Express Critical),
+  // or 9-digit / 26-digit (Mail Innovations) references.
+  const upsRegex = /^(?:1Z[0-9A-Z]{16}|T[0-9A-Z]{10}|\d{9}|\d{26})$/;
+  return upsRegex.test(tn);
+}
+
+/**
+ * Decide which carrier a tracking number belongs to.
+ * Returns "UPS", "FEDEX", or "" when unrecognized.
+ */
+function detectCarrier(v) {
+  const tn = normalizeTN(v);
+  if (!tn) return "";
+  // Check UPS first: its formats (1Z..., T...) don't collide with FedEx's all-digit formats.
+  if (isUpsTrackingNumber(tn)) return "UPS";
+  if (isFedExTrackingNumber(tn)) return "FEDEX";
+  return "";
+}
+
+function getAccessToken() {
+  const tokenCache = CacheService.getScriptCache();
+  let accessToken = tokenCache.get("fedexAccessToken");
+  if (accessToken) return accessToken;
+
+  const payload = {
+    grant_type: "client_credentials",
+    client_id: getScriptProperty_("FEDEX_CLIENT_ID"),
+    client_secret: getScriptProperty_("FEDEX_CLIENT_SECRET")
+  };
+  const options = {
+    method: "post",
+    contentType: "application/x-www-form-urlencoded",
+    payload: payload
+  };
+  const response = UrlFetchApp.fetch(FEDEX_AUTH_URL, options);
+  const data = JSON.parse(response.getContentText());
+  if (!data.access_token) throw new Error("No access token in response");
+  accessToken = data.access_token;
+  tokenCache.put("fedexAccessToken", accessToken, 3500);
+  return accessToken;
+}
+
+function getUpsAccessToken() {
+  const tokenCache = CacheService.getScriptCache();
+  let accessToken = tokenCache.get("upsAccessToken");
+  if (accessToken) return accessToken;
+
+  const credentials = Utilities.base64Encode(
+    getScriptProperty_("UPS_CLIENT_ID") + ":" + getScriptProperty_("UPS_CLIENT_SECRET")
+  );
+  const options = {
+    method: "post",
+    contentType: "application/x-www-form-urlencoded",
+    headers: { Authorization: "Basic " + credentials },
+    payload: { grant_type: "client_credentials" },
+    muteHttpExceptions: true
+  };
+  const response = UrlFetchApp.fetch(UPS_AUTH_URL, options);
+  const data = JSON.parse(response.getContentText());
+  if (!data.access_token) {
+    const detail = (data.response && data.response.errors && data.response.errors[0] &&
+      data.response.errors[0].message) || data.error_description || "unknown error";
+    throw new Error("UPS auth failed: " + detail);
+  }
+  accessToken = data.access_token;
+  // UPS tokens last ~4 hours; cache conservatively.
+  tokenCache.put("upsAccessToken", accessToken, 3500);
+  return accessToken;
+}
+
+// Look up FedEx statuses in one batched call. Returns Map of normalized TN -> status text.
+function fetchFedExStatuses_(trackingNumbers) {
+  const result = new Map();
+  if (trackingNumbers.length === 0) return result;
+
+  try {
+    const accessToken = getAccessToken();
+    const trackingInfo = trackingNumbers.map(tn => ({ trackingNumberInfo: { trackingNumber: tn } }));
+
+    const payload = {
+      trackingInfo: trackingInfo,
+      includeDetailedScans: false
+    };
+
+    const options = {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + accessToken },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+
+    const res = UrlFetchApp.fetch(FEDEX_TRACKING_URL, options);
+    const data = JSON.parse(res.getContentText());
+
+    // API-level error handling
+    if (data.errors && data.errors.length > 0) {
+      const msg = "API Error: " + (data.errors[0].message || "Unknown");
+      trackingNumbers.forEach(tn => result.set(tn, msg));
+      return result;
+    }
+
+    // Parse production response: completeTrackResults -> trackResults[0].latestStatusDetail
+    if (data.output && data.output.completeTrackResults) {
+      data.output.completeTrackResults.forEach(entry => {
+        const tnRaw = entry.trackingNumber ||
+          (entry.trackingNumberInfo && entry.trackingNumberInfo.trackingNumber) || "";
+        const tn = normalizeTN(tnRaw);
+        let friendly = "Status not found.";
+        const tr = (entry.trackResults && entry.trackResults[0]) || null;
+        if (tr && tr.latestStatusDetail) {
+          const code = tr.latestStatusDetail.code;
+          const desc = tr.latestStatusDetail.statusByLocale || tr.latestStatusDetail.description || "";
+          friendly = (code && STATUS_MAP[code]) || desc || "Status not found.";
+        }
+        if (tn) result.set(tn, friendly);
+      });
+    }
+  } catch (err) {
+    trackingNumbers.forEach(tn => result.set(tn, "Error: " + err.message));
+  }
+
+  return result;
+}
+
+// Look up UPS statuses. UPS tracks one number per request, so fan out with fetchAll.
+function fetchUpsStatuses_(trackingNumbers) {
+  const result = new Map();
+  if (trackingNumbers.length === 0) return result;
+
+  let accessToken;
+  try {
+    accessToken = getUpsAccessToken();
+  } catch (err) {
+    trackingNumbers.forEach(tn => result.set(tn, "Error: " + err.message));
+    return result;
+  }
+
+  const requests = trackingNumbers.map(tn => ({
+    url: UPS_TRACKING_URL + encodeURIComponent(tn) + "?locale=en_US&returnSignature=false",
+    method: "get",
+    headers: {
+      Authorization: "Bearer " + accessToken,
+      transId: Utilities.getUuid().replace(/-/g, ""),
+      transactionSrc: "GoogleSheetsTracking"
+    },
+    muteHttpExceptions: true
+  }));
+
+  let responses;
+  try {
+    responses = UrlFetchApp.fetchAll(requests);
+  } catch (err) {
+    trackingNumbers.forEach(tn => result.set(tn, "Error: " + err.message));
+    return result;
+  }
+
+  responses.forEach((res, i) => {
+    const tn = trackingNumbers[i];
+    try {
+      const data = JSON.parse(res.getContentText());
+
+      // API-level error handling
+      const errors = (data.response && data.response.errors) || data.errors;
+      if (errors && errors.length > 0) {
+        result.set(tn, "API Error: " + (errors[0].message || "Unknown"));
+        return;
+      }
+
+      const shipment = data.trackResponse && data.trackResponse.shipment &&
+        data.trackResponse.shipment[0];
+      const pkg = shipment && shipment.package && shipment.package[0];
+      let friendly = "Status not found.";
+      if (pkg) {
+        const activity = (pkg.activity && pkg.activity[0]) || null;
+        const status = (activity && activity.status) || pkg.currentStatus || null;
+        if (status) {
+          friendly = toSentenceCase_(status.description) ||
+            UPS_STATUS_TYPE_MAP[status.type] ||
+            "Status not found.";
+        }
+      }
+      result.set(tn, friendly);
+    } catch (err) {
+      result.set(tn, "Error: " + err.message);
+    }
+  });
+
+  return result;
+}
+
+/**
+ * getTrackingStatus accepts a single cell or a range (column/2D range) and returns the
+ * carrier status for each FedEx or UPS tracking number.
+ * Use in sheet as: =getTrackingStatus(X3:X)
+ */
+function getTrackingStatus(trackingNumbers) {
+  if (trackingNumbers === null || trackingNumbers === undefined) return "";
+
+  // Flatten incoming range to 1D array (Apps Script hands ranges as 2D arrays)
+  const flat = Array.isArray(trackingNumbers) ? trackingNumbers.flat() : [trackingNumbers];
+
+  // Prepare normalized values and per-cell carrier
+  const normalized = flat.map(normalizeTN);
+  const carriers = normalized.map(detectCarrier);
+
+  // Build unique request lists per carrier
+  const fedexUniques = [];
+  const upsUniques = [];
+  const seen = new Set();
+  normalized.forEach((n, i) => {
+    if (!n || !carriers[i] || seen.has(n)) return;
+    seen.add(n);
+    if (carriers[i] === "UPS") upsUniques.push(n);
+    else fedexUniques.push(n);
+  });
+
+  // Quick return if nothing valid
+  if (fedexUniques.length === 0 && upsUniques.length === 0) {
+    return flat.map((v, i) => normalized[i] ? "Invalid tracking number." : "");
+  }
+
+  const fedexStatuses = fetchFedExStatuses_(fedexUniques);
+  const upsStatuses = fetchUpsStatuses_(upsUniques);
+
+  // Map back to original input order, preserving blanks
+  return flat.map((orig, i) => {
+    const tn = normalized[i];
+    if (!tn) return "";                           // leave blank cells blank
+    if (!carriers[i]) return "Invalid tracking number.";
+    const statuses = carriers[i] === "UPS" ? upsStatuses : fedexStatuses;
+    return statuses.get(tn) || "Status not found.";
+  });
+}
+
+/**
+ * Backwards-compatible alias so existing =getFedExStatus(...) formulas keep working.
+ * Handles both FedEx and UPS tracking numbers.
+ */
+function getFedExStatus(trackingNumbers) {
+  return getTrackingStatus(trackingNumbers);
+}
