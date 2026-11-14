@@ -1,0 +1,15 @@
+# Google Apps Script local config (contains private scriptId)
+.clasp.json
+**/.clasp.json
+
+# Environment & local secrets
+.env
+**/.env
+.env.*
+**/.env.*
+
+# macOS & Node
+.DS_Store
+**/.DS_Store
+node_modules/
+**/node_modules/

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_blank">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #202124; background: #fff;
+    }
+    #app { display: flex; flex-direction: column; height: 100vh; padding: 12px 16px 14px; }
+
+    /* Top bar */
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .badge-pool {
+      font-size: 13px; color: #5f6368; background: #f1f3f4; border: 1px solid #dadce0;
+      border-radius: 16px; padding: 4px 12px; font-weight: 500;
+    }
+    .action-btn {
+      background: #1a73e8; border: none; color: #fff; border-radius: 8px;
+      padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.15);
+      transition: filter .1s, transform .05s;
+    }
+    .action-btn:hover { filter: brightness(1.08); }
+    .action-btn:active { transform: scale(.97); }
+    .action-btn.secondary {
+      background: #f1f3f4; border: 1px solid #dadce0; color: #202124; box-shadow: none;
+    }
+    .action-btn.secondary:hover { background: #e8eaed; }
+
+    /* Main card */
+    .card { display: flex; gap: 18px; flex-grow: 1; min-height: 0; }
+    .poster-col { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+    .poster {
+      width: 230px; height: 340px; border-radius: 8px; background: #f1f3f4 center/cover no-repeat;
+      display: flex; align-items: center; justify-content: center; color: #9aa0a6; font-size: 13px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    }
+    .info-col { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; }
+    .title { font-size: 24px; font-weight: 700; line-height: 1.2; margin: 0 0 6px; }
+    .title a { color: #202124; text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; background: #f1f3f4; color: #3c4043; text-decoration: none; }
+    .chip.prio-high { background: #e6f4ea; color: #137333; font-weight: 700; border: 1px solid #ceead6; }
+    .chip.cat-new { background: #ceead6; }
+    .chip.rt {
+      background: #fde7e1; color: #b3261e; font-weight: 700; font-size: 15px;
+      padding: 6px 14px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px;
+      border: 1px solid rgba(179,38,30,.2); box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      text-decoration: none; transition: transform .05s, filter .1s;
+    }
+    .chip.rt:hover { filter: brightness(0.95); transform: scale(1.02); }
+    .chip.rt.none {
+      background: #f1f3f4; color: #80868b; font-weight: 500; font-size: 13px;
+      padding: 5px 12px; border: 1px solid #dadce0; box-shadow: none;
+    }
+    .stars { font-size: 12px; color: #5f6368; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .notes { font-size: 12px; color: #5f6368; margin-bottom: 6px; }
+    .plot {
+      font-size: 13px; line-height: 1.45; color: #3c4043; background: #f8f9fa;
+      border: 1px solid #e8eaed; border-radius: 8px; padding: 10px 12px;
+      margin: 6px 0 8px; max-height: 130px; overflow-y: auto;
+    }
+    .plot:empty { display: none; }
+
+    /* Trailer search button */
+    .yt-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      width: auto; max-width: 320px; margin-top: 6px; padding: 10px 16px;
+      background: #c53929; color: #fff; border-radius: 8px; text-decoration: none;
+      font-size: 14px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.15);
+      transition: filter .1s, transform .05s;
+    }
+    .yt-btn:hover { filter: brightness(1.08); }
+    .yt-btn:active { transform: scale(.98); }
+    .yt-btn .yt-icon {
+      width: 26px; height: 18px; background: #fff; border-radius: 5px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .yt-btn .yt-icon::after { content: ""; border-style: solid; border-width: 4px 0 4px 7px; border-color: transparent transparent transparent #c53929; margin-left: 2px; }
+    .yt-btn .yt-key { font-size: 11px; font-weight: 600; background: rgba(0,0,0,.2); border-radius: 3px; padding: 1px 5px; }
+
+    /* Bottom footer bar */
+    .footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid #dadce0; }
+    .hint { font-size: 12px; color: #80868b; }
+
+    .center-screen { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #5f6368; text-align: center; }
+    .center-screen h2 { color: #202124; margin: 0; }
+    .spinner { width: 28px; height: 28px; border: 3px solid #e8eaed; border-top-color: #1a73e8; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="center-screen" id="loading">
+      <div class="spinner"></div>
+      <div>Selecting a random High Priority movie…</div>
+    </div>
+  </div>
+
+  <script>
+    let pool = [];
+    let currentMovie = null;
+    const media = {};
+
+    google.script.run
+      .withSuccessHandler(init)
+      .withFailureHandler(err => showFatal(err.message))
+      .getRandomHighPriorityPool();
+
+    function init(list) {
+      pool = list || [];
+      if (pool.length === 0) {
+        showFatal("No eligible High Priority movies found (excluding 'To be released' and 'In Theaters').");
+        return;
+      }
+      pickRandom();
+    }
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function mediaKey(m) { return m.imdbId || ("t_" + m.title + "_" + (m.year || "")); }
+
+    function showFatal(msg) {
+      document.getElementById("app").innerHTML =
+        '<div class="center-screen"><h2>No movies available</h2><div>' + esc(msg) + '</div>' +
+        '<button class="action-btn secondary" style="margin-top:10px;" onclick="google.script.host.close()">Close</button></div>';
+    }
+
+    function pickRandom() {
+      if (pool.length === 0) return;
+      let nextIndex = Math.floor(Math.random() * pool.length);
+      // Avoid picking the same movie twice in a row if more than 1 exists
+      if (pool.length > 1 && currentMovie && pool[nextIndex].row === currentMovie.row) {
+        nextIndex = (nextIndex + 1) % pool.length;
+      }
+      currentMovie = pool[nextIndex];
+      render();
+      loadMedia(currentMovie);
+    }
+
+    function loadMedia(m) {
+      if (!m) return;
+      const k = mediaKey(m);
+      if (media[k]) {
+        renderMedia();
+        return;
+      }
+      media[k] = { loading: true };
+      google.script.run
+        .withSuccessHandler(d => {
+          media[k] = d || {};
+          if (currentMovie && mediaKey(currentMovie) === k) renderMedia();
+        })
+        .withFailureHandler(() => {
+          media[k] = { failed: true };
+          if (currentMovie && mediaKey(currentMovie) === k) renderMedia();
+        })
+        .getMovieMediaForPicker(m.imdbId || "", m.title, m.year || null, m.rtUrl || "");
+    }
+
+    function ytSearchUrl(m) {
+      return "https://www.youtube.com/results?search_query=" +
+        encodeURIComponent((m.cleanTitle || m.title) + " " + (m.year || "") + " official trailer");
+    }
+
+    function render() {
+      const m = currentMovie;
+      if (!m) return;
+      const app = document.getElementById("app");
+
+      const catLower = m.category.toLowerCase();
+      const catClass = catLower === "new releases" ? "cat-new" : "";
+      const imdbUrl = m.imdbId ? "https://www.imdb.com/title/" + m.imdbId + "/" : "https://www.imdb.com/find/?q=" + encodeURIComponent(m.title);
+
+      const rtChip = m.rtScore
+        ? (m.rtUrl
+            ? '<a class="chip rt" href="' + esc(m.rtUrl) + '">🍿 ' + esc(m.rtScore) + '</a>'
+            : '<span class="chip rt">🍿 ' + esc(m.rtScore) + '</span>')
+        : '<span class="chip rt none">🍿 No RT score</span>';
+
+      app.innerHTML =
+        '<div class="topbar">' +
+          '<div class="badge-pool">🎲 Pool: ' + pool.length + ' High Priority Movies (Available Now)</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button class="action-btn secondary" onclick="google.script.host.close()">Close</button>' +
+            '<button class="action-btn" onclick="pickRandom()">🎲 Pick Another (Space)</button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="poster-col"><div class="poster" id="poster">Loading…</div></div>' +
+          '<div class="info-col">' +
+            '<h1 class="title"><a href="' + esc(imdbUrl) + '">' + esc(m.title) + '</a></h1>' +
+            '<div class="meta">' +
+              '<span class="chip prio-high">🔥 High Priority</span>' +
+              rtChip +
+              (m.category ? '<span class="chip ' + catClass + '">' + esc(m.category) + '</span>' : '') +
+              (m.dateStr ? '<span class="chip">📅 ' + esc(m.dateStr) + '</span>' : '') +
+              '<span class="chip">Row ' + m.row + '</span>' +
+            '</div>' +
+            '<div class="stars" id="stars"></div>' +
+            '<div class="plot" id="plot">Loading summary…</div>' +
+            (m.notes ? '<div class="notes">📝 ' + esc(m.notes) + '</div>' : '') +
+            '<a class="yt-btn" id="ytBtn" href="' + esc(ytSearchUrl(m)) + '">' +
+              '<span class="yt-icon"></span>Search YouTube for a trailer <span class="yt-key">T</span>' +
+            '</a>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="footer">' +
+          '<div class="hint">Shortcuts: <b>Space / R</b> pick another · <b>T</b> search trailer · <b>Esc</b> close</div>' +
+          '<button class="action-btn" onclick="pickRandom()">🎲 Roll Again</button>' +
+        '</div>';
+
+      renderMedia();
+    }
+
+    function renderMedia() {
+      const m = currentMovie;
+      if (!m) return;
+      const d = media[mediaKey(m)];
+      const posterEl = document.getElementById("poster");
+      const starsEl = document.getElementById("stars");
+      const plotEl = document.getElementById("plot");
+      if (!posterEl) return;
+
+      if (!d || d.loading) {
+        posterEl.textContent = "Loading…";
+        if (plotEl) plotEl.textContent = "Loading summary…";
+        return;
+      }
+
+      if (d.poster) {
+        posterEl.style.backgroundImage = 'url("' + d.poster + '")';
+        posterEl.textContent = "";
+      } else {
+        posterEl.style.backgroundImage = "";
+        posterEl.textContent = "No poster";
+      }
+      starsEl.textContent = d.stars ? "⭐ " + d.stars : "";
+      if (plotEl) {
+        plotEl.textContent = d.plot || "No summary available.";
+      }
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === " " || k === "r" || k === "arrowright") {
+        e.preventDefault();
+        pickRandom();
+      } else if (k === "t") {
+        e.preventDefault();
+        if (currentMovie) window.open(ytSearchUrl(currentMovie), "_blank");
+      } else if (k === "escape") {
+        google.script.host.close();
+      }
+    });
+  </script>
+</body>
+</html>

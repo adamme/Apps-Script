@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_blank">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #202124; background: #fff;
+    }
+    #app { display: flex; flex-direction: column; height: 100vh; padding: 10px 14px 12px; }
+
+    /* Top bar */
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .progress-wrap { flex-grow: 1; }
+    .progress-text { font-size: 12px; color: #5f6368; margin-bottom: 4px; display: flex; justify-content: space-between; }
+    .progress-bar { height: 6px; background: #e8eaed; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #1a73e8; width: 0%; transition: width .25s; }
+    .nav-btn {
+      background: #f1f3f4; border: 1px solid #dadce0; color: #202124; border-radius: 6px;
+      padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .nav-btn:hover { background: #e8eaed; }
+    .nav-btn:disabled { opacity: .4; cursor: default; }
+
+    /* Main card */
+    .card { display: flex; gap: 16px; flex-grow: 1; min-height: 0; }
+    .poster-col { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+    .poster {
+      width: 230px; height: 340px; border-radius: 8px; background: #f1f3f4 center/cover no-repeat;
+      display: flex; align-items: center; justify-content: center; color: #9aa0a6; font-size: 13px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    }
+    .info-col { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; }
+    .title { font-size: 22px; font-weight: 700; line-height: 1.2; margin: 0 0 6px; }
+    .title a { color: #202124; text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; background: #f1f3f4; color: #3c4043; text-decoration: none; }
+    .chip.cat-tbr { background: #e0e0e0; }
+    .chip.cat-theaters { background: #d2e3fc; }
+    .chip.cat-new { background: #ceead6; }
+    .chip.rt {
+      background: #fde7e1; color: #b3261e; font-weight: 700; font-size: 15px;
+      padding: 6px 14px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px;
+      border: 1px solid rgba(179,38,30,.2); box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      transition: transform .05s, filter .1s;
+    }
+    .chip.rt:hover { filter: brightness(0.95); transform: scale(1.02); }
+    .chip.rt.none {
+      background: #f1f3f4; color: #80868b; font-weight: 500; font-size: 13px;
+      padding: 5px 12px; border: 1px solid #dadce0; box-shadow: none;
+    }
+    .stars { font-size: 12px; color: #5f6368; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .notes { font-size: 12px; color: #5f6368; margin-bottom: 6px; }
+    .plot {
+      font-size: 13px; line-height: 1.45; color: #3c4043; background: #f8f9fa;
+      border: 1px solid #e8eaed; border-radius: 8px; padding: 10px 12px;
+      margin: 6px 0 8px; max-height: 110px; overflow-y: auto;
+    }
+    .plot:empty { display: none; }
+
+    /* Trailer search button */
+    .yt-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      width: auto; max-width: 320px; margin-top: 10px; padding: 10px 16px;
+      background: #c53929; color: #fff; border-radius: 8px; text-decoration: none;
+      font-size: 14px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.15);
+      transition: filter .1s, transform .05s;
+    }
+    .yt-btn:hover { filter: brightness(1.08); }
+    .yt-btn:active { transform: scale(.98); }
+    .yt-btn .yt-icon {
+      width: 26px; height: 18px; background: #fff; border-radius: 5px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .yt-btn .yt-icon::after { content: ""; border-style: solid; border-width: 4px 0 4px 7px; border-color: transparent transparent transparent #c53929; margin-left: 2px; }
+    .yt-btn .yt-key { font-size: 11px; font-weight: 600; background: rgba(0,0,0,.2); border-radius: 3px; padding: 1px 5px; }
+
+    /* Priority buttons */
+    .buttons { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .prio-btn {
+      flex: 1 1 0; min-width: 110px; padding: 14px 10px; border: none; border-radius: 8px;
+      color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; position: relative;
+      transition: transform .05s, filter .1s;
+    }
+    .prio-btn:hover { filter: brightness(1.08); }
+    .prio-btn:active { transform: scale(.97); }
+    .prio-btn .key {
+      position: absolute; top: 4px; left: 6px; font-size: 10px; font-weight: 600; opacity: .8;
+      background: rgba(0,0,0,.18); border-radius: 3px; padding: 0 4px;
+    }
+    .hint { font-size: 11px; color: #80868b; margin-top: 6px; text-align: center; }
+
+    #toast {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #323232; color: #fff;
+      padding: 8px 14px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80%;
+    }
+    #toast.show { opacity: 1; }
+    #toast.err { background: #b3261e; }
+
+    .center-screen { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #5f6368; text-align: center; }
+    .center-screen h2 { color: #202124; margin: 0; }
+    .spinner { width: 28px; height: 28px; border: 3px solid #e8eaed; border-top-color: #1a73e8; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="center-screen" id="loading">
+      <div class="spinner"></div>
+      <div>Loading un-prioritized movies…</div>
+    </div>
+  </div>
+  <div id="toast"></div>
+
+  <script>
+    const PALETTE = ["#1e8e3e", "#1a73e8", "#f9ab00", "#e8710a", "#9334e6", "#12b5cb", "#5f6368"];
+    const WONT_COLOR = "#d93025";
+
+    let options = [];
+    let queue = [];
+    let idx = 0;
+    let totalAtStart = 0;
+    let doneCount = 0;
+    let pendingSaves = 0;
+    const history = [];
+    const media = {};
+
+    google.script.run
+      .withSuccessHandler(init)
+      .withFailureHandler(err => showFatal(err.message))
+      .getPriorityQueue();
+
+    function init(data) {
+      options = data.options || [];
+      queue = data.movies || [];
+      totalAtStart = queue.length;
+      render();
+    }
+
+    // ---------- helpers ----------
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function isWont(v) {
+      const n = String(v || "").toLowerCase().replace(/['’`]/g, "").trim();
+      return n === "wont watch" || n === "do not watch" || n === "dont watch";
+    }
+    function isCompleted(v) {
+      const n = String(v || "").toLowerCase().trim();
+      return n === "completed" || n === "complete";
+    }
+    function mediaKey(m) { return m.imdbId || ("t_" + m.title + "_" + (m.year || "")); }
+    function current() { return queue[idx]; }
+    function toast(msg, isErr) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.className = "show" + (isErr ? " err" : "");
+      clearTimeout(t._h);
+      t._h = setTimeout(() => { t.className = ""; }, isErr ? 4500 : 1600);
+    }
+    function showFatal(msg) {
+      document.getElementById("app").innerHTML =
+        '<div class="center-screen"><h2>Something went wrong</h2><div>' + esc(msg) + '</div></div>';
+    }
+
+    // ---------- media (poster + trailer), prefetched a few movies ahead ----------
+    function loadMedia(m) {
+      if (!m) return;
+      const k = mediaKey(m);
+      if (media[k]) return;
+      media[k] = { loading: true };
+      google.script.run
+        .withSuccessHandler(d => {
+          media[k] = d || {};
+          if (current() && mediaKey(current()) === k) renderMedia();
+        })
+        .withFailureHandler(() => {
+          media[k] = { failed: true };
+          if (current() && mediaKey(current()) === k) renderMedia();
+        })
+        .getMovieMediaForPicker(m.imdbId || "", m.title, m.year || null, m.rtUrl || "");
+    }
+    function prefetch() {
+      for (let i = idx; i < Math.min(queue.length, idx + 4); i++) loadMedia(queue[i]);
+    }
+
+    // ---------- rendering ----------
+    function render() {
+      const app = document.getElementById("app");
+      const m = current();
+
+      if (!m) {
+        const skipped = queue.length;
+        app.innerHTML =
+          '<div class="center-screen">' +
+            '<h2>' + (skipped ? "🎉 End of the list!" : "🎉 All movies prioritized!") + '</h2>' +
+            '<div>Prioritized ' + doneCount + ' movie' + (doneCount === 1 ? "" : "s") + ' this session.' +
+              (skipped ? " You skipped " + skipped + "." : "") + '</div>' +
+            (pendingSaves ? '<div>Saving ' + pendingSaves + ' remaining…</div>' : '') +
+            '<div style="display:flex;gap:8px;margin-top:6px;">' +
+              (skipped ? '<button class="nav-btn" onclick="reviewSkipped()">↺ Review skipped</button>' : '') +
+              (history.length ? '<button class="nav-btn" onclick="undo()">⟲ Undo last (Z)</button>' : '') +
+              '<button class="nav-btn" onclick="google.script.host.close()">Close</button>' +
+            '</div>' +
+          '</div>';
+        return;
+      }
+
+      const catLower = m.category.toLowerCase();
+      const catClass = catLower === "to be released" ? "cat-tbr" : catLower === "in theaters" ? "cat-theaters" : catLower === "new releases" ? "cat-new" : "";
+      const imdbUrl = m.imdbId ? "https://www.imdb.com/title/" + m.imdbId + "/" : "https://www.imdb.com/find/?q=" + encodeURIComponent(m.title);
+      const remaining = queue.length;
+      const pct = totalAtStart ? Math.round((doneCount / totalAtStart) * 100) : 0;
+
+      const rtChip = m.rtScore
+        ? (m.rtUrl
+            ? '<a class="chip rt" href="' + esc(m.rtUrl) + '">🍿 ' + esc(m.rtScore) + '</a>'
+            : '<span class="chip rt">🍿 ' + esc(m.rtScore) + '</span>')
+        : '<span class="chip rt none">🍿 No RT score</span>';
+
+      const buttons = options.map((opt, i) => {
+        const color = isWont(opt) ? WONT_COLOR : PALETTE[i % PALETTE.length];
+        const key = i < 9 ? '<span class="key">' + (i + 1) + '</span>' : '';
+        return '<button class="prio-btn" style="background:' + color + '" onclick="choose(' + i + ')">' + key + esc(opt) + '</button>';
+      }).join("");
+
+      app.innerHTML =
+        '<div class="topbar">' +
+          '<button class="nav-btn" onclick="undo()" ' + (history.length ? "" : "disabled") + '>⟲ Undo (Z)</button>' +
+          '<div class="progress-wrap">' +
+            '<div class="progress-text"><span>' + doneCount + ' done · ' + remaining + ' left' +
+              (idx > 0 ? ' · ' + idx + ' skipped' : '') + '</span><span id="saving"></span></div>' +
+            '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+          '</div>' +
+          '<button class="nav-btn" onclick="skip()">Skip (S) →</button>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="poster-col"><div class="poster" id="poster">Loading…</div></div>' +
+          '<div class="info-col">' +
+            '<h1 class="title"><a href="' + esc(imdbUrl) + '">' + esc(m.title) + '</a></h1>' +
+            '<div class="meta">' +
+              rtChip +
+              (m.category ? '<span class="chip ' + catClass + '">' + esc(m.category) + '</span>' : '') +
+              (m.dateStr ? '<span class="chip">📅 ' + esc(m.dateStr) + '</span>' : '') +
+              '<span class="chip">Row ' + m.row + '</span>' +
+            '</div>' +
+            '<div class="stars" id="stars"></div>' +
+            '<div class="plot" id="plot">Loading summary…</div>' +
+            (m.notes ? '<div class="notes">📝 ' + esc(m.notes) + '</div>' : '') +
+            '<a class="yt-btn" id="ytBtn" href="' + esc(ytSearchUrl(m)) + '">' +
+              '<span class="yt-icon"></span>Search YouTube for a trailer <span class="yt-key">T</span>' +
+            '</a>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="buttons">' + buttons + '</div>' +
+        '<div class="hint">Keys: <b>1–' + Math.min(options.length, 9) + '</b> choose priority · <b>S</b> / → skip · <b>Z</b> / ← undo · <b>T</b> search trailer</div>';
+
+      updateSaving();
+      renderMedia();
+      prefetch();
+    }
+
+    function ytSearchUrl(m) {
+      return "https://www.youtube.com/results?search_query=" +
+        encodeURIComponent((m.cleanTitle || m.title) + " " + (m.year || "") + " official trailer");
+    }
+
+    function renderMedia() {
+      const m = current();
+      if (!m) return;
+      const d = media[mediaKey(m)];
+      const posterEl = document.getElementById("poster");
+      const starsEl = document.getElementById("stars");
+      const plotEl = document.getElementById("plot");
+      if (!posterEl) return;
+
+      if (!d || d.loading) {
+        posterEl.textContent = "Loading…";
+        if (plotEl) plotEl.textContent = "Loading summary…";
+        return;
+      }
+
+      if (d.poster) {
+        posterEl.style.backgroundImage = 'url("' + d.poster + '")';
+        posterEl.textContent = "";
+      } else {
+        posterEl.style.backgroundImage = "";
+        posterEl.textContent = "No poster";
+      }
+      starsEl.textContent = d.stars ? "⭐ " + d.stars : "";
+      if (plotEl) {
+        plotEl.textContent = d.plot || "No summary available.";
+      }
+    }
+
+    // Opens a YouTube trailer search for the current movie in a new tab (T key)
+    function openTrailerSearch() {
+      const m = current();
+      if (m) window.open(ytSearchUrl(m), "_blank");
+    }
+
+    function updateSaving() {
+      const el = document.getElementById("saving");
+      if (el) el.textContent = pendingSaves ? "Saving " + pendingSaves + "…" : "✓ Saved";
+    }
+
+    // ---------- actions ----------
+    function choose(optIndex) {
+      const m = current();
+      const value = options[optIndex];
+      if (!m || value === undefined) return;
+
+      // Optimistically advance right away; save in the background
+      queue.splice(idx, 1);
+      history.push({ movie: m, value: value, index: idx });
+      doneCount++;
+      pendingSaves++;
+      render();
+
+      google.script.run
+        .withSuccessHandler(() => {
+          pendingSaves--;
+          updateSaving();
+          if (!current()) render();
+        })
+        .withFailureHandler(err => {
+          pendingSaves--;
+          doneCount--;
+          // Put the movie back at the end of the queue so it isn't lost
+          const hIdx = history.findIndex(h => h.movie === m);
+          if (hIdx >= 0) history.splice(hIdx, 1);
+          queue.push(m);
+          toast("Couldn't save \"" + m.title + "\": " + err.message, true);
+          render();
+        })
+        .savePriorityFromPicker(m.row, m.title, value);
+
+      toast((isWont(value) ? "🚫 " : "✓ ") + m.title + " → " + value);
+    }
+
+    function skip() {
+      if (!current()) return;
+      idx++;
+      render();
+    }
+
+    function reviewSkipped() {
+      idx = 0;
+      render();
+    }
+
+    function undo() {
+      const last = history.pop();
+      if (!last) return;
+      if (isCompleted(last.value)) {
+        history.push(last);
+        toast("\"" + last.movie.title + "\" was moved to the History tab — move it back there manually.", true);
+        return;
+      }
+      if (isWont(last.value)) {
+        history.push(last);
+        toast("\"" + last.movie.title + "\" was moved to the Won't Watch tab — move it back there manually.", true);
+        return;
+      }
+      const insertAt = Math.min(last.index, queue.length);
+      queue.splice(insertAt, 0, last.movie);
+      idx = insertAt;
+      doneCount--;
+      pendingSaves++;
+      render();
+      google.script.run
+        .withSuccessHandler(() => { pendingSaves--; updateSaving(); })
+        .withFailureHandler(err => { pendingSaves--; updateSaving(); toast("Undo failed: " + err.message, true); })
+        .savePriorityFromPicker(last.movie.row, last.movie.title, "");
+      toast("⟲ Undid " + last.movie.title);
+    }
+
+    // ---------- keyboard shortcuts ----------
+    document.addEventListener("keydown", e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (/^[1-9]$/.test(k)) {
+        const i = parseInt(k, 10) - 1;
+        if (i < options.length) { e.preventDefault(); choose(i); }
+      } else if (k === "s" || k === "arrowright") {
+        e.preventDefault(); skip();
+      } else if (k === "z" || k === "arrowleft") {
+        e.preventDefault(); undo();
+      } else if (k === "t") {
+        e.preventDefault(); openTrailerSearch();
+      }
+    });
+  </script>
+</body>
+</html>
