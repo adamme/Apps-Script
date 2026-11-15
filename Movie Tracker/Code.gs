@@ -2545,11 +2545,13 @@ function moveRowToHistory(sheet, rowNum) {
   appendRowsToHistory([[titleCellToCopy, today]]);
   sheet.deleteRow(rowNum);
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    `Added "${movieTitle}" to the "History" tab with today's date.`,
-    "✅ Completed",
-    4
-  );
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      `Added "${movieTitle}" to the "History" tab with today's date.`,
+      "✅ Completed",
+      4
+    );
+  } catch (e) {}
 }
 
 function getOrCreateWontWatchSheet() {
@@ -3431,6 +3433,7 @@ function onOpen() {
     .addSeparator()
     .addItem("🔔 Set Discord Webhook URL", "setDiscordWebhookUrl")
     .addItem("🔔 Send Test Discord Notification", "sendTestDiscordNotification")
+    .addItem("🔐 Setup Plex Webhook Security", "setupPlexWebhookSecurity")
     .addToUi();
 }
 
@@ -3570,4 +3573,301 @@ function sendTestDiscordNotification() {
   }
   const ok = postDiscordNowAvailable(url, "Paddington 2 (test)", "tt4468740");
   ui.alert(ok ? "✅ Test notification sent to Discord!" : "❌ Discord rejected the request. Check the webhook URL.");
+}
+
+
+// ============================================================================
+// 13. 🔐 PLEX WEBHOOK RECEIVER (Marks Watched Movies as "Completed")
+//     - Publish via Apps Script: Deploy -> New deployment -> Web app
+//       * Execute as: Me
+//       * Who has access: Anyone
+//     - Security layers (all stored in Script Properties, never in code):
+//       1. PLEX_WEBHOOK_TOKEN (required): high-entropy secret passed via ?token=...
+//          Verified with constant-time comparison; fails closed if unset.
+//       2. PLEX_SERVER_UUID (optional): restricts requests to your Plex server UUID.
+//       3. PLEX_ACCOUNT_TITLE (optional): restricts to a specific Plex username.
+//     - Only acts on event === "media.scrobble" and Metadata.type === "movie".
+//     - Matches by IMDb ID first (from Metadata.Guid / Metadata.guid), then Title+Year.
+//     - Marks Priority = "Completed" and moves row to "History" (Col A = IMDb link, Col B = Date).
+// ============================================================================
+function doPost(e) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const expectedToken = props.getProperty("PLEX_WEBHOOK_TOKEN") || "";
+
+    // Fail closed if no secret token has been configured in Script Properties
+    if (!expectedToken || expectedToken.length < 16) {
+      return jsonTextResponse({ ok: false });
+    }
+
+    const providedToken = (e && e.parameter && e.parameter.token) ? String(e.parameter.token).trim() : "";
+    if (!constantTimeEquals(providedToken, expectedToken)) {
+      return jsonTextResponse({ ok: false });
+    }
+
+    const payload = parsePlexWebhookPayload(e);
+    if (!payload || typeof payload !== "object") {
+      return jsonTextResponse({ ok: false });
+    }
+
+    // Optional defense-in-depth: verify Plex Server UUID if configured
+    const expectedServerUuid = (props.getProperty("PLEX_SERVER_UUID") || "").trim();
+    if (expectedServerUuid) {
+      const actualUuid = (payload.Server && payload.Server.uuid) ? String(payload.Server.uuid).trim() : "";
+      if (!constantTimeEquals(actualUuid, expectedServerUuid)) {
+        return jsonTextResponse({ ok: false });
+      }
+    }
+
+    // Optional defense-in-depth: restrict to a specific Plex user account (e.g. server owner)
+    const expectedAccount = (props.getProperty("PLEX_ACCOUNT_TITLE") || "").trim().toLowerCase();
+    if (expectedAccount) {
+      const actualAccount = (payload.Account && payload.Account.title) ? String(payload.Account.title).trim().toLowerCase() : "";
+      if (actualAccount !== expectedAccount) {
+        return jsonTextResponse({ ok: true, ignored: true });
+      }
+    }
+
+    // Only act when Plex marks a movie as watched/scrobbled
+    const eventName = String(payload.event || "").trim().toLowerCase();
+    const meta = payload.Metadata || {};
+    const mediaType = String(meta.type || "").trim().toLowerCase();
+
+    if (eventName !== "media.scrobble" || mediaType !== "movie") {
+      return jsonTextResponse({ ok: true, ignored: true });
+    }
+
+    const plexImdbId = extractPlexImdbId(meta);
+    const plexTitle = String(meta.title || "").trim();
+    const plexOrigTitle = String(meta.originalTitle || "").trim();
+    const plexYear = meta.year ? parseInt(meta.year, 10) : null;
+
+    if (!plexImdbId && !plexTitle) {
+      return jsonTextResponse({ ok: false });
+    }
+
+    const result = markMovieCompletedFromPlex(plexImdbId, plexTitle, plexOrigTitle, plexYear);
+    return jsonTextResponse({ ok: true, matched: result.matched });
+  } catch (err) {
+    return jsonTextResponse({ ok: false });
+  }
+}
+
+function jsonTextResponse(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function constantTimeEquals(a, b) {
+  const strA = String(a || "");
+  const strB = String(b || "");
+  let diff = strA.length ^ strB.length;
+  const maxLen = Math.max(strA.length, strB.length);
+  for (let i = 0; i < maxLen; i++) {
+    const codeA = i < strA.length ? strA.charCodeAt(i) : 0;
+    const codeB = i < strB.length ? strB.charCodeAt(i) : 0;
+    diff |= (codeA ^ codeB);
+  }
+  return diff === 0 && strA.length > 0;
+}
+
+function parsePlexWebhookPayload(e) {
+  if (!e) return null;
+  // Plex sends multipart/form-data with a "payload" form field
+  if (e.parameter && e.parameter.payload) {
+    try {
+      return JSON.parse(e.parameter.payload);
+    } catch (err) {}
+  }
+  // Fallback for application/json POST bodies
+  if (e.postData && e.postData.contents) {
+    const raw = String(e.postData.contents).trim();
+    if (raw.startsWith("{")) {
+      try {
+        return JSON.parse(raw);
+      } catch (err) {}
+    }
+  }
+  return null;
+}
+
+function extractPlexImdbId(meta) {
+  if (!meta) return null;
+  if (Array.isArray(meta.Guid)) {
+    for (let i = 0; i < meta.Guid.length; i++) {
+      const idStr = String((meta.Guid[i] && meta.Guid[i].id) || "");
+      const m = idStr.match(/imdb:\/\/(tt\d+)/i) || idStr.match(/\b(tt\d+)\b/i);
+      if (m) return m[1].toLowerCase();
+    }
+  }
+  if (meta.guid) {
+    const m = String(meta.guid).match(/imdb:\/\/(tt\d+)/i) || String(meta.guid).match(/\b(tt\d+)\b/i);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
+}
+
+function markMovieCompletedFromPlex(plexImdbId, plexTitle, plexOrigTitle, plexYear) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  if (!sheet) return { matched: false };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { matched: false };
+
+    const values = sheet.getRange(1, 1, lastRow, 3).getValues();
+    const formulas = sheet.getRange(1, 1, lastRow, 1).getFormulas();
+    const richText = sheet.getRange(1, 1, lastRow, 1).getRichTextValues();
+
+    const matchedRow = findMovieRowForPlex(values, formulas, richText, plexImdbId, plexTitle, plexOrigTitle, plexYear);
+    if (!matchedRow) return { matched: false };
+
+    const priorityCol = findPriorityColumn(sheet);
+    sheet.getRange(matchedRow, priorityCol).setValue("Completed");
+    moveRowToHistory(sheet, matchedRow);
+    return { matched: true, row: matchedRow };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function findMovieRowForPlex(values, formulas, richText, plexImdbId, plexTitle, plexOrigTitle, plexYear) {
+  // 1. Exact IMDb ID match (most reliable)
+  if (plexImdbId) {
+    for (let i = 1; i < values.length; i++) {
+      const rowImdb = extractImdbId(formulas[i][0], richText[i][0]);
+      if (rowImdb && rowImdb === plexImdbId) {
+        return i + 1;
+      }
+    }
+  }
+
+  // 2. Normalized Title (+ optional Year) fallback
+  const targetNorms = [];
+  if (plexTitle) {
+    const n1 = normalizeForCompare(sanitizeTitleAndYear(plexTitle).cleanTitle);
+    if (n1) targetNorms.push(n1);
+  }
+  if (plexOrigTitle) {
+    const n2 = normalizeForCompare(sanitizeTitleAndYear(plexOrigTitle).cleanTitle);
+    if (n2 && targetNorms.indexOf(n2) === -1) targetNorms.push(n2);
+  }
+  if (targetNorms.length === 0) return null;
+
+  let fallbackNoYearRow = null;
+  for (let i = 1; i < values.length; i++) {
+    const rawTitle = extractTitle(values[i][0], formulas[i][0], richText[i][0]);
+    if (!rawTitle) continue;
+
+    const { cleanTitle, year: titleYear } = sanitizeTitleAndYear(rawTitle);
+    const rowNorm = normalizeForCompare(cleanTitle);
+    if (targetNorms.indexOf(rowNorm) === -1) continue;
+
+    if (plexYear) {
+      const recDate = sanitizeAndRecoverDate(values[i][2], titleYear);
+      const rowYear = (recDate && recDate.year) || (titleYear ? parseInt(titleYear, 10) : null);
+      if (rowYear && Math.abs(rowYear - plexYear) <= 1) {
+        return i + 1;
+      }
+      if (!rowYear && !fallbackNoYearRow) {
+        fallbackNoYearRow = i + 1;
+      }
+    } else {
+      return i + 1;
+    }
+  }
+
+  return fallbackNoYearRow;
+}
+
+function generateSecureWebhookToken() {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    Utilities.getUuid() + ":" + Date.now() + ":" + Math.random()
+  );
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    const b = (bytes[i] < 0 ? bytes[i] + 256 : bytes[i]).toString(16);
+    hex += (b.length === 1 ? "0" + b : b);
+  }
+  return hex.slice(0, 48);
+}
+
+// Menu: generates/shows the secret token and optional Plex Server UUID / Account restrictions
+function setupPlexWebhookSecurity() {
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+
+  let token = props.getProperty("PLEX_WEBHOOK_TOKEN") || "";
+  if (!token) {
+    token = generateSecureWebhookToken();
+    props.setProperty("PLEX_WEBHOOK_TOKEN", token);
+  } else {
+    const regen = ui.alert(
+      "🔐 Plex Webhook Security",
+      `A secret token is already configured.\n\nCurrent query string:\n?token=${token}\n\n` +
+        "Do you want to keep this token, or generate a NEW secret token (which invalidates the old URL)?\n\n" +
+        "Click YES to keep the existing token, or NO to rotate/generate a new one.",
+      ui.ButtonSet.YES_NO_CANCEL
+    );
+    if (regen === ui.Button.CANCEL) return;
+    if (regen === ui.Button.NO) {
+      token = generateSecureWebhookToken();
+      props.setProperty("PLEX_WEBHOOK_TOKEN", token);
+    }
+  }
+
+  // Optional Plex Account restriction (prevents friends/guests watching on your Plex from completing movies)
+  const curAcct = props.getProperty("PLEX_ACCOUNT_TITLE") || "";
+  const acctResp = ui.prompt(
+    "👤 Optional: Restrict to Your Plex Username",
+    "Enter your exact Plex username (Account.title) so only YOUR watches mark movies Completed.\n" +
+      "Leave blank to allow any user on your Plex server." +
+      (curAcct ? `\n\nCurrent: ${curAcct}` : ""),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (acctResp.getSelectedButton() === ui.Button.OK) {
+    const acctVal = String(acctResp.getResponseText() || "").trim();
+    if (acctVal) {
+      props.setProperty("PLEX_ACCOUNT_TITLE", acctVal);
+    } else {
+      props.deleteProperty("PLEX_ACCOUNT_TITLE");
+    }
+  }
+
+  // Optional Plex Server UUID restriction
+  const curUuid = props.getProperty("PLEX_SERVER_UUID") || "";
+  const uuidResp = ui.prompt(
+    "🖥️ Optional: Restrict to Your Plex Server UUID",
+    "For extra spoofing protection, paste your Plex Server machineIdentifier / UUID (or leave blank to skip)." +
+      (curUuid ? `\n\nCurrent: ${curUuid}` : ""),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (uuidResp.getSelectedButton() === ui.Button.OK) {
+    const uuidVal = String(uuidResp.getResponseText() || "").trim();
+    if (uuidVal) {
+      props.setProperty("PLEX_SERVER_UUID", uuidVal);
+    } else {
+      props.deleteProperty("PLEX_SERVER_UUID");
+    }
+  }
+
+  let webAppUrl = "";
+  try {
+    webAppUrl = ScriptApp.getService().getUrl() || "";
+  } catch (e) {}
+
+  const fullUrl = webAppUrl
+    ? `${webAppUrl}?token=${token}`
+    : `<YOUR_WEB_APP_EXEC_URL>?token=${token}`;
+
+  ui.alert(
+    "✅ Plex Webhook Ready",
+    `Paste this full URL into Plex (Settings → Webhooks → Add Webhook):\n\n${fullUrl}\n\n` +
+      (!webAppUrl ? "Note: Deploy the Web App first (Deploy → New deployment → Web app → Anyone), then replace <YOUR_WEB_APP_EXEC_URL> with the /exec URL." : ""),
+    ui.ButtonSet.OK
+  );
 }

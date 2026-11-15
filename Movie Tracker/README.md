@@ -25,4 +25,16 @@ Automated movie watchlist & release tracker for Google Sheets using IMDb, Rotten
 3. In the Apps Script editor, go to **Project Settings → Script Properties** and add:
    - `OMDB_API_KEY`: your free OMDb API key from <https://www.omdbapi.com/apikey.aspx>
    - `DISCORD_WEBHOOK_URL` *(optional)*: Discord webhook for "Now available" posts when a movie moves into `New Releases` (or set it via **🎬 Movie Tools → 🔔 Set Discord Webhook URL**)
+   - `PLEX_WEBHOOK_TOKEN` *(optional)*: High-entropy secret token for Plex webhook authentication (generated via **🎬 Movie Tools → 🔐 Setup Plex Webhook Security**)
+   - `PLEX_SERVER_UUID` / `PLEX_ACCOUNT_TITLE` *(optional)*: Extra defense-in-depth checks to restrict Plex scrobble webhooks to your server UUID and username
 4. Reload your Google Sheet and use the **🎬 Movie Tools** menu (optionally run **⏰ Enable Daily VOD & Category Automation** for daily updates).
+
+### Plex Auto-Complete Webhook Setup
+
+1. In the Apps Script editor, click **Deploy → New deployment → Web app**:
+   - **Execute as:** Me
+   - **Who has access:** Anyone
+   - Copy the generated `/exec` URL.
+2. In your Google Sheet, run **🎬 Movie Tools → 🔐 Setup Plex Webhook Security** to generate a secret token (and optionally lock it to your Plex username and server UUID).
+3. In Plex (**Settings → Webhooks → Add Webhook**), paste `<YOUR_WEB_APP_EXEC_URL>?token=<YOUR_SECRET_TOKEN>`.
+4. Whenever Plex sends a `media.scrobble` event for a movie, it is matched by IMDb ID (or Title + Year), marked `Completed`, removed from `Movies`, and logged to `History`.
