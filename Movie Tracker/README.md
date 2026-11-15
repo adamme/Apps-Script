@@ -24,4 +24,5 @@ Automated movie watchlist & release tracker for Google Sheets using IMDb, Rotten
 2. Push the project with `clasp push`.
 3. In the Apps Script editor, go to **Project Settings → Script Properties** and add:
    - `OMDB_API_KEY`: your free OMDb API key from <https://www.omdbapi.com/apikey.aspx>
+   - `DISCORD_WEBHOOK_URL` *(optional)*: Discord webhook for "Now available" posts when a movie moves into `New Releases` (or set it via **🎬 Movie Tools → 🔔 Set Discord Webhook URL**)
 4. Reload your Google Sheet and use the **🎬 Movie Tools** menu (optionally run **⏰ Enable Daily VOD & Category Automation** for daily updates).

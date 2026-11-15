@@ -2372,6 +2372,11 @@ function checkAndFormatSheet(sheet) {
   const dataRange = sheet.getRange(2, 1, sortedValues.length, numCols);
   dataRange.setValues(sortedValues);
 
+  // Post a Discord "Now available" notification for any movie that just moved into "New Releases"
+  try {
+    processNewReleaseNotifications(sortedValues);
+  } catch (e) {}
+
   // Apply number formats to Column C: "yyyy" for year-only dates, "MMMM d, yyyy" for exact dates
   const dateFormats = [];
   for (let i = 0; i < sortedValues.length; i++) {
@@ -3423,5 +3428,146 @@ function onOpen() {
     .addItem("⏰ Enable Daily VOD & Category Automation", "setupDailyVodTrigger")
     .addItem("🎨 Sort & Format Sheet Now", "checkAndFormatSheetWrapper")
     .addItem("🧹 Clear All Errors & Notes", "clearAllErrorsAndNotes")
+    .addSeparator()
+    .addItem("🔔 Set Discord Webhook URL", "setDiscordWebhookUrl")
+    .addItem("🔔 Send Test Discord Notification", "sendTestDiscordNotification")
     .addToUi();
+}
+
+
+// ============================================================================
+// 12. 🔔 DISCORD "NOW AVAILABLE" NOTIFICATIONS
+//     - Posts "Now available: <Title>" (title hyperlinked to IMDb) to a Discord webhook
+//       whenever a movie moves from "To be released" / "In Theaters" into "New Releases".
+//     - The webhook URL is stored in Script Properties as "DISCORD_WEBHOOK_URL" (never in code).
+//     - Tracks which movies were "To be released"/"In Theaters" at the last check in the
+//       "NR_PREV_ACTIVE" Script Property, so each transition is announced exactly once and
+//       movies added directly as "New Releases" (or existing ones) never spam the channel.
+// ============================================================================
+function getDiscordWebhookUrl() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty("DISCORD_WEBHOOK_URL") || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function getMovieNotifyKey(colAValue) {
+  const imdbId = extractImdbId(String(colAValue || ""), null);
+  if (imdbId) return imdbId;
+  const title = extractTitle(colAValue, String(colAValue || ""), null);
+  const norm = normalizeForCompare(sanitizeTitleAndYear(title).cleanTitle);
+  return norm ? "t:" + norm : "";
+}
+
+function processNewReleaseNotifications(sortedValues) {
+  if (!sortedValues || sortedValues.length === 0) return;
+
+  {
+    const props = PropertiesService.getScriptProperties();
+    const prevRaw = props.getProperty("NR_PREV_ACTIVE");
+    const isFirstRun = prevRaw === null;
+    let prevActive = {};
+    if (!isFirstRun) {
+      try { prevActive = JSON.parse(prevRaw) || {}; } catch (e) { prevActive = {}; }
+    }
+
+    const webhookUrl = getDiscordWebhookUrl();
+    const nextActive = {};
+    const toNotify = [];
+
+    for (let i = 0; i < sortedValues.length; i++) {
+      const colA = sortedValues[i][0];
+      const cat = String(sortedValues[i][1] || "").toLowerCase().trim();
+      const key = getMovieNotifyKey(colA);
+      if (!key) continue;
+
+      if (cat === "to be released" || cat === "in theaters") {
+        nextActive[key] = 1;
+      } else if (cat === "new releases" && !isFirstRun && prevActive[key]) {
+        const title = extractTitle(colA, String(colA || ""), null);
+        const imdbId = extractImdbId(String(colA || ""), null);
+        toNotify.push({ key: key, title: title, imdbId: imdbId });
+      }
+    }
+
+    for (let n = 0; n < toNotify.length; n++) {
+      const item = toNotify[n];
+      const sent = webhookUrl ? postDiscordNowAvailable(webhookUrl, item.title, item.imdbId) : false;
+      // If posting failed (or no webhook configured yet), keep it pending so it retries next run
+      if (!sent) nextActive[item.key] = 1;
+    }
+
+    props.setProperty("NR_PREV_ACTIVE", JSON.stringify(nextActive));
+  }
+}
+
+function postDiscordNowAvailable(webhookUrl, title, imdbId) {
+  const safeTitle = String(title || "Movie").replace(/([\[\]\\*_~`|])/g, "\\$1");
+  const imdbUrl = imdbId
+    ? `https://www.imdb.com/title/${imdbId}/`
+    : `https://www.imdb.com/find/?q=${encodeURIComponent(title || "")}`;
+  const payload = {
+    content: `🍿 **Now available:** [${safeTitle}](${imdbUrl})`,
+    allowed_mentions: { parse: [] }
+  };
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = UrlFetchApp.fetch(webhookUrl, {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      const code = res.getResponseCode();
+      if (code >= 200 && code < 300) return true;
+      if (code === 429) {
+        let waitMs = 1500;
+        try {
+          const body = JSON.parse(res.getContentText());
+          if (body && body.retry_after) waitMs = Math.ceil(Number(body.retry_after) * 1000) + 250;
+        } catch (e) {}
+        Utilities.sleep(Math.min(waitMs, 10000));
+        continue;
+      }
+      return false;
+    } catch (e) {
+      Utilities.sleep(1000);
+    }
+  }
+  return false;
+}
+
+// Menu: prompts for the Discord webhook URL and saves it to Script Properties
+function setDiscordWebhookUrl() {
+  const ui = SpreadsheetApp.getUi();
+  const current = getDiscordWebhookUrl();
+  const resp = ui.prompt(
+    "🔔 Discord Webhook URL",
+    (current ? "A webhook is already saved. Paste a new URL to replace it (or leave blank to keep it).\n\n" : "") +
+      "Paste your Discord webhook URL:",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  const url = String(resp.getResponseText() || "").trim();
+  if (!url) return;
+  if (!/^https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+/i.test(url)) {
+    ui.alert("That doesn't look like a Discord webhook URL (https://discord.com/api/webhooks/...).");
+    return;
+  }
+  PropertiesService.getScriptProperties().setProperty("DISCORD_WEBHOOK_URL", url);
+  ui.alert("✅ Saved! Movies moving into \"New Releases\" will now post \"Now available\" to Discord.");
+}
+
+// Menu: sends a sample notification so you can confirm the webhook works
+function sendTestDiscordNotification() {
+  const ui = SpreadsheetApp.getUi();
+  const url = getDiscordWebhookUrl();
+  if (!url) {
+    ui.alert("No Discord webhook saved yet. Use \"🔔 Set Discord Webhook URL\" first.");
+    return;
+  }
+  const ok = postDiscordNowAvailable(url, "Paddington 2 (test)", "tt4468740");
+  ui.alert(ok ? "✅ Test notification sent to Discord!" : "❌ Discord rejected the request. Check the webhook URL.");
 }
