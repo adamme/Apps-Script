@@ -64,15 +64,8 @@ function onEdit(e) {
   if (sheetName !== "Movies") return;
   if (e.range.getRow() <= 1) return;
 
-  const priorityCol = findPriorityColumn(sheet);
-  const startCol = e.range.getColumn();
-  const endCol = startCol + e.range.getNumColumns() - 1;
-
-  // Whenever the Priority column (or Category column) is edited, check for any
-  // "Completed" or "Won't Watch" rows and move them immediately!
-  if ((priorityCol >= startCol && priorityCol <= endCol) || (startCol <= 2 && endCol >= 2)) {
-    processCompletedAndWontWatchRows(sheet);
-  }
+  // Check for any "Completed" or "Won't Watch" rows on any edit to "Movies"
+  processCompletedAndWontWatchRows(sheet);
 }
 
 function handleHistoryTabEdit(sheet, range) {
@@ -103,15 +96,32 @@ function processCompletedAndWontWatchRows(sheet) {
   }
   if (!sheet) return 0;
 
+  const initialLastRow = sheet.getLastRow();
+  if (initialLastRow <= 1) return 0;
+
+  const priorityCol = findPriorityColumn(sheet);
+  const numCols = Math.max(priorityCol, 2);
+
+  // Fast lock-free pre-check (~20ms) so normal edits don't contend on ScriptLock
+  const preVals = sheet.getRange(1, 1, initialLastRow, numCols).getDisplayValues();
+  let hasActionableRow = false;
+  for (let i = 1; i < preVals.length; i++) {
+    const p = preVals[i][priorityCol - 1];
+    const c = preVals[i][1];
+    if (isCompletedValue(p) || isCompletedValue(c) || isWontWatchValue(p) || isWontWatchValue(c)) {
+      hasActionableRow = true;
+      break;
+    }
+  }
+  if (!hasActionableRow) return 0;
+
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return 0;
+  if (!lock.tryLock(15000)) return 0;
   let movedCount = 0;
   try {
     const lastRow = sheet.getLastRow();
     if (lastRow <= 1) return 0;
 
-    const priorityCol = findPriorityColumn(sheet);
-    const numCols = Math.max(priorityCol, 2);
     const displayVals = sheet.getRange(1, 1, lastRow, numCols).getDisplayValues();
 
     // Scan bottom-to-top so deleting a row never shifts row numbers above it
@@ -125,6 +135,9 @@ function processCompletedAndWontWatchRows(sheet) {
         moveRowToWontWatch(sheet, i + 1);
         movedCount++;
       }
+    }
+    if (movedCount > 0) {
+      SpreadsheetApp.flush();
     }
   } finally {
     lock.releaseLock();
@@ -252,6 +265,7 @@ function onMovieEdit(e) {
 //       newly added row missing its IMDb link & metadata, looks it up, and sorts!
 // ============================================================================
 function onSheetChange(e) {
+  processCompletedAndWontWatchRows();
   processNewlyAddedRows();
   sortHistorySheet();
 }
@@ -2597,7 +2611,7 @@ function checkAndFormatSheet(sheet) {
 // "COMPLETED" -> "HISTORY" & "WON'T WATCH" PRIORITY TIER / TAB MOVEMENT HELPERS
 // ============================================================================
 function isCompletedValue(val) {
-  const norm = String(val || "").toLowerCase().trim();
+  const norm = String(val || "").toLowerCase().replace(/[^a-z]/g, "");
   return norm === "completed" || norm === "complete";
 }
 
