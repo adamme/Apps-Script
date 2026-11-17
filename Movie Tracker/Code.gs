@@ -947,9 +947,11 @@ function dailyVodAndActiveMoviesCheck() {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
 
-  // First, run a quick pass of checkAndFormatSheet so any "To be released" movies
+  // First, link & populate any newly added unlinked rows (e.g. from AI/external tools),
+  // then run a quick pass of checkAndFormatSheet so any "To be released" movies
   // whose release date arrived today become "In Theaters" (or "New Releases" if Netflix),
   // and any "In Theaters" movies whose existing "VOD: <Date>" in Notes arrived today become "New Releases".
+  processNewlyAddedRows(sheet);
   checkAndFormatSheet(sheet);
 
   const numCols = Math.max(7, sheet.getLastColumn());
@@ -1229,45 +1231,6 @@ function weeklyActiveMoviesRefresh() {
   }
 
   dailyVodAndActiveMoviesCheck();
-}
-
-// Sets up automatic triggers for daily VOD/category checks and AI/external edit detection
-function setupDailyVodTrigger() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const triggers = ScriptApp.getProjectTriggers();
-  let hasDaily = false;
-  let hasEdit = false;
-  let hasChange = false;
-  let hasTimer = false;
-
-  for (const t of triggers) {
-    const fn = t.getHandlerFunction();
-    if (fn === "dailyVodAndActiveMoviesCheck") hasDaily = true;
-    if (fn === "onMovieEdit") hasEdit = true;
-    if (fn === "onSheetChange") hasChange = true;
-    if (fn === "processNewlyAddedRows") hasTimer = true;
-  }
-
-  if (!hasDaily) {
-    ScriptApp.newTrigger("dailyVodAndActiveMoviesCheck").timeBased().everyDays(1).atHour(8).create();
-  }
-  if (!hasEdit) {
-    ScriptApp.newTrigger("onMovieEdit").forSpreadsheet(ss).onEdit().create();
-  }
-  if (!hasChange) {
-    ScriptApp.newTrigger("onSheetChange").forSpreadsheet(ss).onChange().create();
-  }
-  if (!hasTimer) {
-    ScriptApp.newTrigger("processNewlyAddedRows").timeBased().everyMinutes(5).create();
-  }
-
-  processNewlyAddedRows(ss.getSheetByName("Movies"));
-
-  SpreadsheetApp.getUi().alert(
-    "✅ Automations enabled!\n\n" +
-    "• Every morning (8–9 AM): checks VOD/release dates & promotes categories\n" +
-    "• Every 5 mins / on change: links & sorts any movies added by AI or external tools"
-  );
 }
 
 // ============================================================================
@@ -3520,11 +3483,7 @@ function onOpen() {
     .addItem("📺 Check VOD Dates & Promote Categories Now", "dailyVodCheckMenuWrapper")
     .addItem("🔄 Refresh In Theaters & New Releases", "weeklyActiveMoviesRefresh")
     .addSeparator()
-    .addItem("⏰ Enable Daily VOD & Category Automation", "setupDailyVodTrigger")
     .addItem("🎨 Sort & Format Sheet Now", "checkAndFormatSheetWrapper")
-    .addSeparator()
-    .addItem("🔔 Send Test Discord Notification", "sendTestDiscordNotification")
-    .addItem("🔐 Setup Plex Webhook Security", "setupPlexWebhookSecurity")
     .addToUi();
 }
 
@@ -3631,18 +3590,6 @@ function postDiscordNowAvailable(webhookUrl, title, imdbId) {
     }
   }
   return false;
-}
-
-// Menu: sends a sample notification so you can confirm the webhook works
-function sendTestDiscordNotification() {
-  const ui = SpreadsheetApp.getUi();
-  const url = getDiscordWebhookUrl();
-  if (!url) {
-    ui.alert("No Discord webhook saved yet. Add DISCORD_WEBHOOK_URL in Project Settings -> Script Properties.");
-    return;
-  }
-  const ok = postDiscordNowAvailable(url, "Paddington 2 (test)", "tt4468740");
-  ui.alert(ok ? "✅ Test notification sent to Discord!" : "❌ Discord rejected the request. Check the webhook URL.");
 }
 
 
@@ -3853,91 +3800,3 @@ function findMovieRowForPlex(values, formulas, richText, plexImdbId, plexTitle, 
   return fallbackNoYearRow;
 }
 
-function generateSecureWebhookToken() {
-  const bytes = Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256,
-    Utilities.getUuid() + ":" + Date.now() + ":" + Math.random()
-  );
-  let hex = "";
-  for (let i = 0; i < bytes.length; i++) {
-    const b = (bytes[i] < 0 ? bytes[i] + 256 : bytes[i]).toString(16);
-    hex += (b.length === 1 ? "0" + b : b);
-  }
-  return hex.slice(0, 48);
-}
-
-// Menu: generates/shows the secret token and optional Plex Server UUID / Account restrictions
-function setupPlexWebhookSecurity() {
-  const ui = SpreadsheetApp.getUi();
-  const props = PropertiesService.getScriptProperties();
-
-  let token = props.getProperty("PLEX_WEBHOOK_TOKEN") || "";
-  if (!token) {
-    token = generateSecureWebhookToken();
-    props.setProperty("PLEX_WEBHOOK_TOKEN", token);
-  } else {
-    const regen = ui.alert(
-      "🔐 Plex Webhook Security",
-      `A secret token is already configured.\n\nCurrent query string:\n?token=${token}\n\n` +
-        "Do you want to keep this token, or generate a NEW secret token (which invalidates the old URL)?\n\n" +
-        "Click YES to keep the existing token, or NO to rotate/generate a new one.",
-      ui.ButtonSet.YES_NO_CANCEL
-    );
-    if (regen === ui.Button.CANCEL) return;
-    if (regen === ui.Button.NO) {
-      token = generateSecureWebhookToken();
-      props.setProperty("PLEX_WEBHOOK_TOKEN", token);
-    }
-  }
-
-  // Optional Plex Account restriction (prevents friends/guests watching on your Plex from completing movies)
-  const curAcct = props.getProperty("PLEX_ACCOUNT_TITLE") || "";
-  const acctResp = ui.prompt(
-    "👤 Optional: Restrict to Your Plex Username",
-    "Enter your exact Plex username (Account.title) so only YOUR watches mark movies Completed.\n" +
-      "Leave blank to allow any user on your Plex server." +
-      (curAcct ? `\n\nCurrent: ${curAcct}` : ""),
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (acctResp.getSelectedButton() === ui.Button.OK) {
-    const acctVal = String(acctResp.getResponseText() || "").trim();
-    if (acctVal) {
-      props.setProperty("PLEX_ACCOUNT_TITLE", acctVal);
-    } else {
-      props.deleteProperty("PLEX_ACCOUNT_TITLE");
-    }
-  }
-
-  // Optional Plex Server UUID restriction
-  const curUuid = props.getProperty("PLEX_SERVER_UUID") || "";
-  const uuidResp = ui.prompt(
-    "🖥️ Optional: Restrict to Your Plex Server UUID",
-    "For extra spoofing protection, paste your Plex Server machineIdentifier / UUID (or leave blank to skip)." +
-      (curUuid ? `\n\nCurrent: ${curUuid}` : ""),
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (uuidResp.getSelectedButton() === ui.Button.OK) {
-    const uuidVal = String(uuidResp.getResponseText() || "").trim();
-    if (uuidVal) {
-      props.setProperty("PLEX_SERVER_UUID", uuidVal);
-    } else {
-      props.deleteProperty("PLEX_SERVER_UUID");
-    }
-  }
-
-  let webAppUrl = "";
-  try {
-    webAppUrl = ScriptApp.getService().getUrl() || "";
-  } catch (e) {}
-
-  const fullUrl = webAppUrl
-    ? `${webAppUrl}?token=${token}`
-    : `<YOUR_WEB_APP_EXEC_URL>?token=${token}`;
-
-  ui.alert(
-    "✅ Plex Webhook Ready",
-    `Paste this full URL into Plex (Settings → Webhooks → Add Webhook):\n\n${fullUrl}\n\n` +
-      (!webAppUrl ? "Note: Deploy the Web App first (Deploy → New deployment → Web app → Anyone), then replace <YOUR_WEB_APP_EXEC_URL> with the /exec URL." : ""),
-    ui.ButtonSet.OK
-  );
-}
