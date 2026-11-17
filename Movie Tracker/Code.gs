@@ -49,7 +49,33 @@ let omdbQuotaExceeded = false;
 function onMovieEdit(e) {
   if (!e || !e.range) return;
   const sheet = e.range.getSheet();
-  if (sheet.getName() !== "Movies") return;
+  const sheetName = String(sheet.getName() || "").trim();
+
+  // If something is added or edited on the "History" tab, auto-sort newest watch date top-to-bottom
+  if (sheetName.toLowerCase() === "history") {
+    if (e.range.getRow() <= 1) return;
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) return;
+    try {
+      const editRow = e.range.getRow();
+      const titleVal = String(sheet.getRange(editRow, 1).getDisplayValue() || "").trim();
+      const dateVal = sheet.getRange(editRow, 2).getValue();
+      // If a title was added to History without a watch date, default Col B to today's date
+      if (titleVal && (dateVal === "" || dateVal === null || dateVal === undefined)) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const dateCell = sheet.getRange(editRow, 2);
+        dateCell.setValue(today);
+        dateCell.setNumberFormat("MMMM d, yyyy");
+      }
+      sortHistorySheet(sheet);
+    } finally {
+      lock.releaseLock();
+    }
+    return;
+  }
+
+  if (sheetName !== "Movies") return;
 
   const row = e.range.getRow();
   const col = e.range.getColumn();
@@ -2563,17 +2589,119 @@ function getOrCreateHistorySheet() {
       return s;
     }
   }
-  return ss.insertSheet("History");
+  const created = ss.insertSheet("History");
+  created.getRange(1, 1, 1, 2).setValues([["Movie", "Watch Date"]]);
+  return created;
 }
 
 function appendRowsToHistory(historyRows) {
   if (!historyRows || historyRows.length === 0) return;
   const targetSheet = getOrCreateHistorySheet();
-  const bottomRow = findBottomMovieRow(targetSheet, 2);
-  const startRow = bottomRow + 1;
 
-  targetSheet.getRange(startRow, 1, historyRows.length, 2).setValues(historyRows);
-  targetSheet.getRange(startRow, 2, historyRows.length, 1).setNumberFormat("MMMM d, yyyy");
+  // Ensure Row 1 exists before inserting at Row 2 (right below the header)
+  if (targetSheet.getLastRow() === 0) {
+    targetSheet.getRange(1, 1, 1, 2).setValues([["Movie", "Watch Date"]]);
+  }
+
+  // Insert new row(s) at the top below the header (Row 2)
+  targetSheet.insertRowsAfter(1, historyRows.length);
+  targetSheet.getRange(2, 1, historyRows.length, 2).setValues(historyRows);
+  targetSheet.getRange(2, 2, historyRows.length, 1).setNumberFormat("MMMM d, yyyy");
+
+  // Always keep the History tab sorted newest watch date top-to-bottom
+  sortHistorySheet(targetSheet);
+}
+
+function sortHistorySheet(historySheet) {
+  if (!historySheet) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = ss.getSheets();
+    for (const s of sheets) {
+      if (String(s.getName() || "").toLowerCase().trim() === "history") {
+        historySheet = s;
+        break;
+      }
+    }
+  }
+  if (!historySheet) return;
+
+  const lastRow = historySheet.getLastRow();
+  if (lastRow <= 2) return; // Nothing to sort if only header + at most 1 row
+
+  const numCols = Math.max(2, historySheet.getLastColumn());
+  const numDataRows = lastRow - 1;
+  const range = historySheet.getRange(2, 1, numDataRows, numCols);
+  const values = range.getValues();
+  const formulas = range.getFormulas();
+  const richTextA = historySheet.getRange(2, 1, numDataRows, 1).getRichTextValues();
+
+  const rows = [];
+  for (let r = 0; r < numDataRows; r++) {
+    const hasContent = values[r].some(c => String(c || "").trim() !== "") || Boolean(formulas[r][0]);
+    if (!hasContent) continue;
+
+    const rowData = [];
+    for (let c = 0; c < numCols; c++) {
+      if (c === 0) {
+        if (formulas[r][0]) {
+          rowData.push(formulas[r][0]);
+        } else {
+          let linkUrl = richTextA[r][0] ? richTextA[r][0].getLinkUrl() : null;
+          if (!linkUrl && richTextA[r][0] && richTextA[r][0].getRuns) {
+            const runs = richTextA[r][0].getRuns();
+            for (let k = 0; k < runs.length; k++) {
+              if (runs[k].getLinkUrl()) {
+                linkUrl = runs[k].getLinkUrl();
+                break;
+              }
+            }
+          }
+          const cellText = String(values[r][0] || "").trim();
+          if (linkUrl && cellText) {
+            rowData.push(`=HYPERLINK("${linkUrl}", "${cellText.replace(/"/g, '""')}")`);
+          } else {
+            rowData.push(values[r][0]);
+          }
+        }
+      } else {
+        rowData.push(formulas[r][c] ? formulas[r][c] : values[r][c]);
+      }
+    }
+
+    const rawDate = values[r][1];
+    let parsedTime = -Infinity;
+    if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+      parsedTime = rawDate.getTime();
+    } else if (rawDate) {
+      const d = parseSafeLocalDate(String(rawDate));
+      if (d && !isNaN(d.getTime())) {
+        parsedTime = d.getTime();
+        rowData[1] = d;
+      }
+    }
+
+    rows.push({
+      data: rowData,
+      time: parsedTime,
+      origIdx: r
+    });
+  }
+
+  if (rows.length === 0) return;
+
+  // Sort newest watch date to oldest (top to bottom); preserve top-to-bottom order on ties
+  rows.sort((a, b) => {
+    if (a.time !== b.time) return b.time - a.time;
+    return a.origIdx - b.origIdx;
+  });
+
+  const sortedValues = rows.map(r => r.data);
+  historySheet.getRange(2, 1, sortedValues.length, numCols).setValues(sortedValues);
+  historySheet.getRange(2, 2, sortedValues.length, 1).setNumberFormat("MMMM d, yyyy");
+
+  if (sortedValues.length < numDataRows) {
+    historySheet.getRange(2 + sortedValues.length, 1, numDataRows - sortedValues.length, numCols).clearContent();
+  }
 }
 
 function moveRowToHistory(sheet, rowNum) {
@@ -2694,6 +2822,7 @@ function moveRowToWontWatch(sheet, rowNum) {
 function checkAndFormatSheetWrapper() {
   processNewlyAddedRows();
   checkAndFormatSheet();
+  sortHistorySheet();
 }
 
 function ensureHeaders(sheet) {
