@@ -199,10 +199,14 @@ function onMovieEdit(e) {
 // ============================================================================
 function onSheetChange(e) {
   processNewlyAddedRows();
+  sortHistorySheet();
 }
 
 function processNewlyAddedRows(sheet) {
-  if (!sheet) sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  // When called by a Time-driven or On-change trigger, `sheet` is the trigger event object `e`
+  if (!sheet || typeof sheet.getLastRow !== "function") {
+    sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  }
   if (!sheet) return 0;
 
   const lastRow = sheet.getLastRow();
@@ -2225,7 +2229,9 @@ function fetchOmdbJson(url) {
 // 10. SHEET FORMATTING, SORTING & LIFECYCLE PROMOTION HELPERS
 // ============================================================================
 function checkAndFormatSheet(sheet) {
-  if (!sheet) sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  if (!sheet || typeof sheet.getLastRow !== "function") {
+    sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  }
   if (!sheet) return;
 
   ensureHeaders(sheet);
@@ -2613,7 +2619,8 @@ function appendRowsToHistory(historyRows) {
 }
 
 function sortHistorySheet(historySheet) {
-  if (!historySheet) {
+  if (!historySheet || typeof historySheet.getLastRow !== "function") {
+    historySheet = null;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheets = ss.getSheets();
     for (const s of sheets) {
