@@ -240,43 +240,6 @@ function processNewlyAddedRows(sheet) {
   return processed;
 }
 
-function setupAiAndExternalEditsTrigger() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const triggers = ScriptApp.getProjectTriggers();
-
-  let hasEdit = false;
-  let hasChange = false;
-  let hasTimer = false;
-
-  for (let i = 0; i < triggers.length; i++) {
-    const fn = triggers[i].getHandlerFunction();
-    if (fn === "onMovieEdit") hasEdit = true;
-    if (fn === "onSheetChange") hasChange = true;
-    if (fn === "processNewlyAddedRows") hasTimer = true;
-  }
-
-  if (!hasEdit) {
-    ScriptApp.newTrigger("onMovieEdit").forSpreadsheet(ss).onEdit().create();
-  }
-  if (!hasChange) {
-    ScriptApp.newTrigger("onSheetChange").forSpreadsheet(ss).onChange().create();
-  }
-  if (!hasTimer) {
-    ScriptApp.newTrigger("processNewlyAddedRows").timeBased().everyMinutes(5).create();
-  }
-
-  // Also immediately process any unlinked movie currently sitting at the bottom of the sheet!
-  const count = processNewlyAddedRows(ss.getSheetByName("Movies"));
-
-  SpreadsheetApp.getUi().alert(
-    "✅ AI & External Edit Auto-Detection is active!\n\n" +
-    "• Installed On-Edit trigger (onMovieEdit)\n" +
-    "• Installed On-Change trigger (onSheetChange)\n" +
-    "• Installed 5-minute background watcher (processNewlyAddedRows) for API writes\n\n" +
-    (count > 0 ? `✨ Also just linked & sorted ${count} newly added movie(s) on your sheet!` : "Any movie added by Muse.ai or external tools will now automatically get its IMDb link, RT score, release date, and sort into place.")
-  );
-}
-
 // ============================================================================
 // 2. VISUAL MODAL MOVIE PICKER (Menu, '?' Suffix, or 'fix' in Col G)
 // ============================================================================
@@ -1268,26 +1231,42 @@ function weeklyActiveMoviesRefresh() {
   dailyVodAndActiveMoviesCheck();
 }
 
-// Sets up an automatic daily time-driven trigger for `dailyVodAndActiveMoviesCheck`
+// Sets up automatic triggers for daily VOD/category checks and AI/external edit detection
 function setupDailyVodTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const triggers = ScriptApp.getProjectTriggers();
+  let hasDaily = false;
+  let hasEdit = false;
+  let hasChange = false;
+  let hasTimer = false;
+
   for (const t of triggers) {
-    if (t.getHandlerFunction() === "dailyVodAndActiveMoviesCheck") {
-      SpreadsheetApp.getUi().alert("✅ The Daily VOD & Category Check automation is already active!");
-      return;
-    }
+    const fn = t.getHandlerFunction();
+    if (fn === "dailyVodAndActiveMoviesCheck") hasDaily = true;
+    if (fn === "onMovieEdit") hasEdit = true;
+    if (fn === "onSheetChange") hasChange = true;
+    if (fn === "processNewlyAddedRows") hasTimer = true;
   }
-  ScriptApp.newTrigger("dailyVodAndActiveMoviesCheck")
-    .timeBased()
-    .everyDays(1)
-    .atHour(8)
-    .create();
+
+  if (!hasDaily) {
+    ScriptApp.newTrigger("dailyVodAndActiveMoviesCheck").timeBased().everyDays(1).atHour(8).create();
+  }
+  if (!hasEdit) {
+    ScriptApp.newTrigger("onMovieEdit").forSpreadsheet(ss).onEdit().create();
+  }
+  if (!hasChange) {
+    ScriptApp.newTrigger("onSheetChange").forSpreadsheet(ss).onChange().create();
+  }
+  if (!hasTimer) {
+    ScriptApp.newTrigger("processNewlyAddedRows").timeBased().everyMinutes(5).create();
+  }
+
+  processNewlyAddedRows(ss.getSheetByName("Movies"));
+
   SpreadsheetApp.getUi().alert(
-    "✅ Enabled! Every morning between 8–9 AM, your sheet will automatically:\n" +
-    "1. Move newly released movies to 'In Theaters'\n" +
-    "2. Check VOD dates for 'In Theaters' movies & write them to Notes\n" +
-    "3. Move 'In Theaters' movies to 'New Releases' as soon as their VOD date arrives\n" +
-    "4. Graduate 6-month-old 'New Releases' to their Genre."
+    "✅ Automations enabled!\n\n" +
+    "• Every morning (8–9 AM): checks VOD/release dates & promotes categories\n" +
+    "• Every 5 mins / on change: links & sorts any movies added by AI or external tools"
   );
 }
 
@@ -2750,17 +2729,8 @@ function moveRowToWontWatch(sheet, rowNum) {
 }
 
 function checkAndFormatSheetWrapper() {
+  processNewlyAddedRows();
   checkAndFormatSheet();
-}
-
-function clearAllErrorsAndNotes() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
-  if (!sheet) return;
-  ensureHeaders(sheet);
-  const numRows = Math.max(1, sheet.getLastRow() - 1);
-  sheet.getRange(2, 1, numRows, 1).clearNote();
-  sheet.getRange(2, 7, numRows, 1).clearContent();
-  SpreadsheetApp.getActiveSpreadsheet().toast("Cleared all cell notes and Column G errors.", "Done", 4);
 }
 
 function ensureHeaders(sheet) {
@@ -3550,12 +3520,9 @@ function onOpen() {
     .addItem("📺 Check VOD Dates & Promote Categories Now", "dailyVodCheckMenuWrapper")
     .addItem("🔄 Refresh In Theaters & New Releases", "weeklyActiveMoviesRefresh")
     .addSeparator()
-    .addItem("🤖 Enable Auto-Detect for AI / External Edits", "setupAiAndExternalEditsTrigger")
     .addItem("⏰ Enable Daily VOD & Category Automation", "setupDailyVodTrigger")
     .addItem("🎨 Sort & Format Sheet Now", "checkAndFormatSheetWrapper")
-    .addItem("🧹 Clear All Errors & Notes", "clearAllErrorsAndNotes")
     .addSeparator()
-    .addItem("🔔 Set Discord Webhook URL", "setDiscordWebhookUrl")
     .addItem("🔔 Send Test Discord Notification", "sendTestDiscordNotification")
     .addItem("🔐 Setup Plex Webhook Security", "setupPlexWebhookSecurity")
     .addToUi();
@@ -3666,33 +3633,12 @@ function postDiscordNowAvailable(webhookUrl, title, imdbId) {
   return false;
 }
 
-// Menu: prompts for the Discord webhook URL and saves it to Script Properties
-function setDiscordWebhookUrl() {
-  const ui = SpreadsheetApp.getUi();
-  const current = getDiscordWebhookUrl();
-  const resp = ui.prompt(
-    "🔔 Discord Webhook URL",
-    (current ? "A webhook is already saved. Paste a new URL to replace it (or leave blank to keep it).\n\n" : "") +
-      "Paste your Discord webhook URL:",
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (resp.getSelectedButton() !== ui.Button.OK) return;
-  const url = String(resp.getResponseText() || "").trim();
-  if (!url) return;
-  if (!/^https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+/i.test(url)) {
-    ui.alert("That doesn't look like a Discord webhook URL (https://discord.com/api/webhooks/...).");
-    return;
-  }
-  PropertiesService.getScriptProperties().setProperty("DISCORD_WEBHOOK_URL", url);
-  ui.alert("✅ Saved! Movies moving into \"New Releases\" will now post \"Now available\" to Discord.");
-}
-
 // Menu: sends a sample notification so you can confirm the webhook works
 function sendTestDiscordNotification() {
   const ui = SpreadsheetApp.getUi();
   const url = getDiscordWebhookUrl();
   if (!url) {
-    ui.alert("No Discord webhook saved yet. Use \"🔔 Set Discord Webhook URL\" first.");
+    ui.alert("No Discord webhook saved yet. Add DISCORD_WEBHOOK_URL in Project Settings -> Script Properties.");
     return;
   }
   const ok = postDiscordNowAvailable(url, "Paddington 2 (test)", "tt4468740");
