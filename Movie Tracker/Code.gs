@@ -2604,14 +2604,20 @@ function appendRowsToHistory(historyRows) {
   if (!historyRows || historyRows.length === 0) return;
   const targetSheet = getOrCreateHistorySheet();
 
-  // Ensure Row 1 exists before inserting at Row 2 (right below the header)
+  // Ensure Row 1 exists and there is at least a Row 2 so we can "Insert row above" from Row 2
   if (targetSheet.getLastRow() === 0) {
     targetSheet.getRange(1, 1, 1, 2).setValues([["Movie", "Watch Date"]]);
   }
+  if (targetSheet.getMaxRows() < 2) {
+    targetSheet.insertRowsAfter(1, 1);
+    targetSheet.getRange(2, 1, 1, Math.max(2, targetSheet.getLastColumn())).clearFormat();
+  }
 
-  // Insert new row(s) at the top below the header (Row 2)
-  targetSheet.insertRowsAfter(1, historyRows.length);
-  targetSheet.getRange(2, 1, historyRows.length, 2).setValues(historyRows);
+  // Insert new row(s) ABOVE Row 2 (inherits Row 2's plain formatting instead of Row 1's header formatting!)
+  targetSheet.insertRowsBefore(2, historyRows.length);
+  const insertedRange = targetSheet.getRange(2, 1, historyRows.length, 2);
+  insertedRange.setFontWeight("normal").setBackground(null);
+  insertedRange.setValues(historyRows);
   targetSheet.getRange(2, 2, historyRows.length, 1).setNumberFormat("MMMM d, yyyy");
 
   // Always keep the History tab sorted newest watch date top-to-bottom
