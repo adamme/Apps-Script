@@ -44,8 +44,94 @@ const apiKey = getOmdbApiKey();
 let omdbQuotaExceeded = false;
 
 // ============================================================================
-// 1. ON EDIT TRIGGER (Installable Trigger: attach to `onMovieEdit`)
+// 1. ON EDIT TRIGGERS
+//    - `onEdit(e)` (built-in simple trigger): immediately checks the Priority
+//      column whenever edited and moves "Completed" rows to "History" (or
+//      "Won't Watch" rows to "Won't Watch") with zero trigger setup required!
+//    - `onMovieEdit(e)` (installable On-edit trigger): handles all of the above
+//      plus external API lookups (IMDb/RT/OMDb) when Column A is edited.
 // ============================================================================
+function onEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  const sheetName = String(sheet.getName() || "").trim();
+
+  if (sheetName.toLowerCase() === "history") {
+    handleHistoryTabEdit(sheet, e.range);
+    return;
+  }
+
+  if (sheetName !== "Movies") return;
+  if (e.range.getRow() <= 1) return;
+
+  const priorityCol = findPriorityColumn(sheet);
+  const startCol = e.range.getColumn();
+  const endCol = startCol + e.range.getNumColumns() - 1;
+
+  // Whenever the Priority column (or Category column) is edited, check for any
+  // "Completed" or "Won't Watch" rows and move them immediately!
+  if ((priorityCol >= startCol && priorityCol <= endCol) || (startCol <= 2 && endCol >= 2)) {
+    processCompletedAndWontWatchRows(sheet);
+  }
+}
+
+function handleHistoryTabEdit(sheet, range) {
+  if (!sheet || !range || range.getRow() <= 1) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return;
+  try {
+    const editRow = range.getRow();
+    const titleVal = String(sheet.getRange(editRow, 1).getDisplayValue() || "").trim();
+    const dateVal = sheet.getRange(editRow, 2).getValue();
+    // If a title was added to History without a watch date, default Col B to today's date
+    if (titleVal && (dateVal === "" || dateVal === null || dateVal === undefined)) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dateCell = sheet.getRange(editRow, 2);
+      dateCell.setValue(today);
+      dateCell.setNumberFormat("MMMM d, yyyy");
+    }
+    sortHistorySheet(sheet);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function processCompletedAndWontWatchRows(sheet) {
+  if (!sheet || typeof sheet.getLastRow !== "function") {
+    sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  }
+  if (!sheet) return 0;
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return 0;
+  let movedCount = 0;
+  try {
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return 0;
+
+    const priorityCol = findPriorityColumn(sheet);
+    const numCols = Math.max(priorityCol, 2);
+    const displayVals = sheet.getRange(1, 1, lastRow, numCols).getDisplayValues();
+
+    // Scan bottom-to-top so deleting a row never shifts row numbers above it
+    for (let i = displayVals.length - 1; i >= 1; i--) {
+      const prioVal = displayVals[i][priorityCol - 1];
+      const catVal = displayVals[i][1];
+      if (isCompletedValue(prioVal) || isCompletedValue(catVal)) {
+        moveRowToHistory(sheet, i + 1);
+        movedCount++;
+      } else if (isWontWatchValue(prioVal) || isWontWatchValue(catVal)) {
+        moveRowToWontWatch(sheet, i + 1);
+        movedCount++;
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return movedCount;
+}
+
 function onMovieEdit(e) {
   if (!e || !e.range) return;
   const sheet = e.range.getSheet();
@@ -53,25 +139,7 @@ function onMovieEdit(e) {
 
   // If something is added or edited on the "History" tab, auto-sort newest watch date top-to-bottom
   if (sheetName.toLowerCase() === "history") {
-    if (e.range.getRow() <= 1) return;
-    const lock = LockService.getScriptLock();
-    if (!lock.tryLock(10000)) return;
-    try {
-      const editRow = e.range.getRow();
-      const titleVal = String(sheet.getRange(editRow, 1).getDisplayValue() || "").trim();
-      const dateVal = sheet.getRange(editRow, 2).getValue();
-      // If a title was added to History without a watch date, default Col B to today's date
-      if (titleVal && (dateVal === "" || dateVal === null || dateVal === undefined)) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const dateCell = sheet.getRange(editRow, 2);
-        dateCell.setValue(today);
-        dateCell.setNumberFormat("MMMM d, yyyy");
-      }
-      sortHistorySheet(sheet);
-    } finally {
-      lock.releaseLock();
-    }
+    handleHistoryTabEdit(sheet, e.range);
     return;
   }
 
@@ -85,35 +153,21 @@ function onMovieEdit(e) {
 
   ensureHeaders(sheet);
 
+  const priorityCol = findPriorityColumn(sheet);
+  const endCol = col + numCols - 1;
+
+  // Whenever the Priority column (or Category column) is edited, immediately check
+  // for any "Completed" or "Won't Watch" movies and move them right away!
+  if ((priorityCol >= col && priorityCol <= endCol) || (col <= 2 && endCol >= 2)) {
+    const moved = processCompletedAndWontWatchRows(sheet);
+    if (moved > 0) return;
+  }
+
   // If an AI assistant (like Muse.ai) or paste operation writes multiple columns/rows at once
   // starting at Column A, process any newly added unlinked rows and auto-sort!
   if (numRows > 1 || numCols > 1) {
     if (col === 1 && numRows <= 15) {
       processNewlyAddedRows(sheet);
-    }
-    return;
-  }
-
-  // MOVE TO "HISTORY" TAB WHEN PRIORITY TIER IS SET TO "Completed"
-  if (col > 1 && e.value && isCompletedValue(e.value)) {
-    const lock = LockService.getScriptLock();
-    if (!lock.tryLock(10000)) return;
-    try {
-      moveRowToHistory(sheet, row);
-    } finally {
-      lock.releaseLock();
-    }
-    return;
-  }
-
-  // MOVE TO "WON'T WATCH" TAB WHEN PRIORITY TIER IS SET TO "Won't Watch"
-  if (col > 1 && e.value && isWontWatchValue(e.value)) {
-    const lock = LockService.getScriptLock();
-    if (!lock.tryLock(10000)) return;
-    try {
-      moveRowToWontWatch(sheet, row);
-    } finally {
-      lock.releaseLock();
     }
     return;
   }
@@ -208,6 +262,9 @@ function processNewlyAddedRows(sheet) {
     sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
   }
   if (!sheet) return 0;
+
+  // Also move any rows that were marked "Completed" or "Won't Watch"
+  processCompletedAndWontWatchRows(sheet);
 
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return 0;
