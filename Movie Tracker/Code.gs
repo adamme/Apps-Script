@@ -51,14 +51,22 @@ function onMovieEdit(e) {
   const sheet = e.range.getSheet();
   if (sheet.getName() !== "Movies") return;
 
-  // Ignore multi-cell paste operations to avoid concurrent sort/lookup chaos
-  if (e.range.getNumRows() > 1 || e.range.getNumColumns() > 1) return;
-
   const row = e.range.getRow();
   const col = e.range.getColumn();
+  const numRows = e.range.getNumRows();
+  const numCols = e.range.getNumColumns();
   if (row <= 1) return;
 
   ensureHeaders(sheet);
+
+  // If an AI assistant (like Muse.ai) or paste operation writes multiple columns/rows at once
+  // starting at Column A, process any newly added unlinked rows and auto-sort!
+  if (numRows > 1 || numCols > 1) {
+    if (col === 1 && numRows <= 15) {
+      processNewlyAddedRows(sheet);
+    }
+    return;
+  }
 
   // MOVE TO "HISTORY" TAB WHEN PRIORITY TIER IS SET TO "Completed"
   if (col > 1 && e.value && isCompletedValue(e.value)) {
@@ -104,8 +112,9 @@ function onMovieEdit(e) {
   }
 
   // COLUMN A EDIT (New or edited Movie Title)
-  if (col === 1 && e.value) {
-    const rawTyped = String(e.value).trim();
+  if (col === 1) {
+    const rawTyped = String(e.value !== undefined ? e.value : e.range.getDisplayValue()).trim();
+    if (!rawTyped) return;
 
     // TRIGGER MODAL VIA "?" SUFFIX IN COLUMN A (e.g. "Paul?"):
     // Strips the "?" and opens the visual movie picker modal immediately!
@@ -152,6 +161,120 @@ function onMovieEdit(e) {
       lock.releaseLock();
     }
   }
+}
+
+// ============================================================================
+// 1B. EXTERNAL / AI EDIT WATCHER (`onSheetChange` + `processNewlyAddedRows`)
+//     - Google Sheets does NOT fire `onEdit` when third-party integrations or AI
+//       tools (like Muse.ai) write via the Google Sheets API or insert rows.
+//     - `onSheetChange` (installable `On change` trigger) and the 5-minute
+//       background watcher call `processNewlyAddedRows()`, which detects any
+//       newly added row missing its IMDb link & metadata, looks it up, and sorts!
+// ============================================================================
+function onSheetChange(e) {
+  processNewlyAddedRows();
+}
+
+function processNewlyAddedRows(sheet) {
+  if (!sheet) sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Movies");
+  if (!sheet) return 0;
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0;
+
+  // Quick lock-free pre-check in memory (<50ms, 0 external API calls if nothing is pending)
+  const range = sheet.getRange(1, 1, lastRow, 7);
+  const values = range.getValues();
+  const formulas = range.getFormulas();
+  const richText = sheet.getRange(1, 1, lastRow, 1).getRichTextValues();
+
+  const pendingTitles = [];
+  for (let i = 1; i < values.length; i++) {
+    const rawTitle = extractTitle(values[i][0], formulas[i][0], richText[i][0]);
+    if (!rawTitle) continue;
+
+    const errText = String(values[i][6] || "").trim();
+    if (errText.startsWith("❌") || errText.startsWith("⚠️")) continue;
+
+    const hasImdbLink = Boolean(extractImdbId(formulas[i][0], richText[i][0]));
+    const hasCategory = String(values[i][1] || "").trim() !== "";
+    const hasDate = values[i][2] !== "" && values[i][2] !== null && values[i][2] !== undefined;
+
+    // A newly added row from an AI tool / external API will have a title in Col A
+    // but no IMDb hyperlink yet (and/or missing Category or Release Date)
+    if (!hasImdbLink && (!hasCategory || !hasDate)) {
+      pendingTitles.push({ expectedRow: i + 1, rawTitle: rawTitle });
+    }
+  }
+
+  if (pendingTitles.length === 0) return 0;
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return 0;
+  let processed = 0;
+  try {
+    ensureHeaders(sheet);
+    for (let k = 0; k < pendingTitles.length; k++) {
+      const item = pendingTitles[k];
+      const liveRow = findCurrentRowForMovie(sheet, item.expectedRow, item.rawTitle);
+      if (!liveRow) continue;
+
+      // Double-check under lock that it still lacks an IMDb link
+      const liveFormula = sheet.getRange(liveRow, 1).getFormula();
+      const liveRich = sheet.getRange(liveRow, 1).getRichTextValue();
+      if (extractImdbId(liveFormula, liveRich)) continue;
+
+      sheet.getRange(liveRow, 1).clearNote();
+      sheet.getRange(liveRow, 7).setValue("");
+      updateMovieData(sheet, liveRow, item.rawTitle, { preserveUserTitle: true });
+      SpreadsheetApp.flush();
+      processed++;
+    }
+
+    if (processed > 0) {
+      checkAndFormatSheet(sheet);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return processed;
+}
+
+function setupAiAndExternalEditsTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const triggers = ScriptApp.getProjectTriggers();
+
+  let hasEdit = false;
+  let hasChange = false;
+  let hasTimer = false;
+
+  for (let i = 0; i < triggers.length; i++) {
+    const fn = triggers[i].getHandlerFunction();
+    if (fn === "onMovieEdit") hasEdit = true;
+    if (fn === "onSheetChange") hasChange = true;
+    if (fn === "processNewlyAddedRows") hasTimer = true;
+  }
+
+  if (!hasEdit) {
+    ScriptApp.newTrigger("onMovieEdit").forSpreadsheet(ss).onEdit().create();
+  }
+  if (!hasChange) {
+    ScriptApp.newTrigger("onSheetChange").forSpreadsheet(ss).onChange().create();
+  }
+  if (!hasTimer) {
+    ScriptApp.newTrigger("processNewlyAddedRows").timeBased().everyMinutes(5).create();
+  }
+
+  // Also immediately process any unlinked movie currently sitting at the bottom of the sheet!
+  const count = processNewlyAddedRows(ss.getSheetByName("Movies"));
+
+  SpreadsheetApp.getUi().alert(
+    "✅ AI & External Edit Auto-Detection is active!\n\n" +
+    "• Installed On-Edit trigger (onMovieEdit)\n" +
+    "• Installed On-Change trigger (onSheetChange)\n" +
+    "• Installed 5-minute background watcher (processNewlyAddedRows) for API writes\n\n" +
+    (count > 0 ? `✨ Also just linked & sorted ${count} newly added movie(s) on your sheet!` : "Any movie added by Muse.ai or external tools will now automatically get its IMDb link, RT score, release date, and sort into place.")
+  );
 }
 
 // ============================================================================
@@ -3427,6 +3550,7 @@ function onOpen() {
     .addItem("📺 Check VOD Dates & Promote Categories Now", "dailyVodCheckMenuWrapper")
     .addItem("🔄 Refresh In Theaters & New Releases", "weeklyActiveMoviesRefresh")
     .addSeparator()
+    .addItem("🤖 Enable Auto-Detect for AI / External Edits", "setupAiAndExternalEditsTrigger")
     .addItem("⏰ Enable Daily VOD & Category Automation", "setupDailyVodTrigger")
     .addItem("🎨 Sort & Format Sheet Now", "checkAndFormatSheetWrapper")
     .addItem("🧹 Clear All Errors & Notes", "clearAllErrorsAndNotes")
