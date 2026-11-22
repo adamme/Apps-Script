@@ -204,6 +204,21 @@ function onMovieEdit(e) {
     }
   }
 
+  // If Category (Col B), Release Date (Col C), Priority, or Notes is edited on "Movies",
+  // re-evaluate category promotions and sort the sheet so "In Theaters" and "New Releases"
+  // always have newest on top whenever anything moves!
+  const notesCol = findNotesColumn(sheet);
+  if (col === 2 || col === 3 || col === priorityCol || col === notesCol) {
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) return;
+    try {
+      checkAndFormatSheet(sheet);
+    } finally {
+      lock.releaseLock();
+    }
+    return;
+  }
+
   // COLUMN A EDIT (New or edited Movie Title)
   if (col === 1) {
     const rawTyped = String(e.value !== undefined ? e.value : e.range.getDisplayValue()).trim();
@@ -266,7 +281,17 @@ function onMovieEdit(e) {
 // ============================================================================
 function onSheetChange(e) {
   processCompletedAndWontWatchRows();
-  processNewlyAddedRows();
+  const newlyProcessed = processNewlyAddedRows();
+  if (!newlyProcessed) {
+    const lock = LockService.getScriptLock();
+    if (lock.tryLock(10000)) {
+      try {
+        checkAndFormatSheet();
+      } finally {
+        lock.releaseLock();
+      }
+    }
+  }
   sortHistorySheet();
 }
 
@@ -2506,8 +2531,8 @@ function checkAndFormatSheet(sheet) {
     const dateA = a.rawDate instanceof Date ? a.rawDate.getTime() : new Date(a.rawDate).getTime();
     const dateB = b.rawDate instanceof Date ? b.rawDate.getTime() : new Date(b.rawDate).getTime();
 
-    const timeA = isNaN(dateA) ? Infinity : dateA;
-    const timeB = isNaN(dateB) ? Infinity : dateB;
+    const descA = isNaN(dateA) ? -Infinity : dateA;
+    const descB = isNaN(dateB) ? -Infinity : dateB;
 
     // Genre movies (after "New Releases"): sort by Priority (High -> Medium -> Low -> other/blank),
     // then newest to oldest within each priority (undated rows at the bottom of their priority group)
@@ -2515,14 +2540,19 @@ function checkAndFormatSheet(sheet) {
       const prioA = getPriorityRank(a.data[priorityColIdx]);
       const prioB = getPriorityRank(b.data[priorityColIdx]);
       if (prioA !== prioB) return prioA - prioB;
-
-      const descA = isNaN(dateA) ? -Infinity : dateA;
-      const descB = isNaN(dateB) ? -Infinity : dateB;
       if (descA === descB) return 0;
       return descB - descA;
     }
 
-    // "To be released", "In Theaters", "New Releases": unchanged (oldest to newest)
+    // "In Theaters" (rank 2) and "New Releases" (rank 3): always sort newest release date on top (newest to oldest)
+    if (rankA === 2 || rankA === 3) {
+      if (descA === descB) return 0;
+      return descB - descA;
+    }
+
+    // "To be released" (rank 1): soonest upcoming release on top (oldest to newest)
+    const timeA = isNaN(dateA) ? Infinity : dateA;
+    const timeB = isNaN(dateB) ? Infinity : dateB;
     if (timeA === timeB) return 0;
     return timeA - timeB;
   });
