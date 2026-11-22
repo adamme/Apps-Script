@@ -1150,37 +1150,32 @@ function dailyVodAndActiveMoviesCheck() {
         }
       }
 
-      // Candidate exact dates from Rotten Tomatoes (US theatrical / streaming) and OMDb/IMDb (exact IMDb ID match)
-      let rtDateObj = null;
+      // Candidate exact dates from Rotten Tomatoes (US theatrical / streaming) and OMDb/IMDb (exact IMDb ID match).
+      // Always use the earliest chronological release date (within the active window > sixMonthsAgo).
+      const releaseCandidates = [];
       if (rtData) {
-        const rtDateStr = (rtData.isNetflix && rtData.vodDateStr)
-          ? rtData.vodDateStr
-          : (rtData.theatersDateStr || rtData.vodDateStr);
-        const parsedRt = rtDateStr ? parseSafeLocalDate(rtDateStr) : null;
-        // Ignore older namesake films (e.g. an older movie with the same title)
-        if (parsedRt && !isNaN(parsedRt.getTime()) && !isDec31Date(parsedRt) && parsedRt > sixMonthsAgo) {
-          rtDateObj = parsedRt;
+        if (rtData.isNetflix && rtData.vodDateStr) {
+          releaseCandidates.push(rtData.vodDateStr);
+        } else {
+          if (rtData.theatersDateStr) releaseCandidates.push(rtData.theatersDateStr);
+          if (rtData.vodDateStr) releaseCandidates.push(rtData.vodDateStr);
         }
       }
 
-      let omdbDateObj = null;
       let omdbYear = null;
       if (imdbId && !omdbQuotaExceeded) {
         const omdbData = fetchOmdbJson(`https://www.omdbapi.com/?i=${imdbId}&apikey=${apiKey}`);
         if (omdbData && omdbData.Response === "True") {
           if (omdbData.Released && omdbData.Released !== "N/A") {
-            const parsedOmdb = parseSafeLocalDate(omdbData.Released);
-            if (parsedOmdb && !isNaN(parsedOmdb.getTime()) && !isDec31Date(parsedOmdb)) {
-              omdbDateObj = parsedOmdb;
-            }
+            releaseCandidates.push(omdbData.Released);
           }
           const ym = String(omdbData.Year || "").match(/\d{4}/);
           if (ym) omdbYear = parseInt(ym[0], 10);
         }
       }
 
-      // Prefer RT's US release date; fall back to OMDb's exact IMDb-ID release date
-      const latestExactDate = rtDateObj || omdbDateObj;
+      const earliestRelease = pickEarliestDate(releaseCandidates, sixMonthsAgo, searchYear);
+      const latestExactDate = earliestRelease ? earliestRelease.date : null;
       const dateCell = sheet.getRange(i + 1, 3);
 
       if (latestExactDate) {
@@ -1213,14 +1208,38 @@ function dailyVodAndActiveMoviesCheck() {
       continue;
     }
 
-    // 3. For movies currently "In Theaters", check daily for Netflix status, VOD release date & Popcornmeter
-    if (category === "in theaters") {
+    // 3. For movies currently in "In Theaters" or "New Releases" (active 6-month window):
+    //    - Confirm theatrical release date (Col C), Netflix status, Popcornmeter (Col D),
+    //      and earliest chronological VOD/Digital release date (Paid VOD vs Streaming)
+    if (category === "in theaters" || category === "new releases") {
       const imdbId = extractImdbId(formulas[i][0], richText[i][0]);
-      let vodDateStr = (imdbId && vodCalendar.byImdb[imdbId]) || vodCalendar.byTitle[normalizeForCompare(cleanTitle)] || null;
+      const calVodStr = (imdbId && vodCalendar.byImdb[imdbId]) || vodCalendar.byTitle[normalizeForCompare(cleanTitle)] || null;
 
       const rtData = fetchRottenTomatoesData(cleanTitle, searchYear);
       if (rtData && rtData.popcornmeter) {
         writeRtScoreCell(sheet.getRange(i + 1, 4), rtData.popcornmeter, rtData.url);
+      }
+
+      // Confirm/update Column C theatrical release date if RT has an earlier or updated theatrical date
+      let effectiveReleaseDate = hasValidDate ? existingDate : null;
+      if (rtData && rtData.theatersDateStr) {
+        const parsedTheaters = parseSafeLocalDate(rtData.theatersDateStr, searchYear);
+        if (parsedTheaters && !isNaN(parsedTheaters.getTime()) && parsedTheaters > sixMonthsAgo) {
+          if (!effectiveReleaseDate || (category === "in theaters" && parsedTheaters.getTime() !== effectiveReleaseDate.getTime())) {
+            effectiveReleaseDate = parsedTheaters;
+            const dateCell = sheet.getRange(i + 1, 3);
+            dateCell.setValue(parsedTheaters);
+            dateCell.setNumberFormat("MMMM d, yyyy");
+            vodUpdates++;
+          }
+        }
+      }
+
+      // If theatrical release date was delayed into the future, demote back to "To be released"
+      if (effectiveReleaseDate && effectiveReleaseDate > today) {
+        sheet.getRange(i + 1, 2).setValue("To be released");
+        Utilities.sleep(120);
+        continue;
       }
 
       if ((rtData && rtData.isNetflix) || isNetflixNote(existingNoteText)) {
@@ -1230,23 +1249,31 @@ function dailyVodAndActiveMoviesCheck() {
           vodUpdates++;
         }
         // Netflix exclusives go directly to streaming -> move to "New Releases"
-        if (!hasValidDate || existingDate <= today) {
+        if (category !== "new releases" && (!effectiveReleaseDate || effectiveReleaseDate <= today)) {
           sheet.getRange(i + 1, 2).setValue("New Releases");
         }
       } else {
-        if (!vodDateStr && rtData && rtData.vodDateStr) {
-          vodDateStr = rtData.vodDateStr;
-        }
-        if (vodDateStr) {
-          const updatedNoteText = upsertVodNote(existingNoteText, vodDateStr);
+        // Always pick the FIRST chronological VOD/Digital date across DVDsReleaseDates (paid PVOD)
+        // and Rotten Tomatoes (Streaming/Digital); fall back to existing Note if neither live source lists one
+        const existingVodObj = extractVodDateFromNote(existingNoteText, searchYear);
+        const minVodFloor = effectiveReleaseDate || sixMonthsAgo;
+        const earliestVod =
+          pickEarliestDate([calVodStr, rtData ? rtData.vodDateStr : null], minVodFloor, searchYear) ||
+          pickEarliestDate([existingVodObj], minVodFloor, searchYear);
+
+        if (earliestVod) {
+          const updatedNoteText = upsertVodNote(existingNoteText, earliestVod.formatted);
           if (updatedNoteText !== existingNoteText) {
             sheet.getRange(i + 1, notesCol).setValue(updatedNoteText);
             vodUpdates++;
           }
-          // If the newly discovered VOD date is today or in the past, promote immediately to "New Releases"!
-          const vodDateObj = parseSafeLocalDate(vodDateStr);
-          if (vodDateObj && vodDateObj <= today) {
+          if (earliestVod.date <= today && category === "in theaters") {
             sheet.getRange(i + 1, 2).setValue("New Releases");
+          } else if (earliestVod.date > today && category === "new releases") {
+            // Self-heal: if a movie was prematurely placed in "New Releases" while its VOD date is still in the future,
+            // return it to "In Theaters"!
+            sheet.getRange(i + 1, 2).setValue("In Theaters");
+            vodUpdates++;
           }
         }
       }
@@ -1492,20 +1519,20 @@ function updateMovieData(sheet, rowNum, titleText, options) {
 
     // 5. Determine Release Date:
     //    - For Netflix exclusives, prefer the RT Streaming release date (since it goes directly to streaming)
-    //    - Otherwise: OMDb Released -> RT Theatrical Date -> RT Streaming Date -> Year fallback
+    //    - Otherwise: pick the FIRST chronological release date across OMDb Released, RT Theatrical, and RT Streaming
     let apiDate = null;
     let isYearOnly = false;
     if (isNetflix && rtData && rtData.vodDateStr) {
-      apiDate = parseSafeLocalDate(rtData.vodDateStr);
+      apiDate = parseSafeLocalDate(rtData.vodDateStr, searchYear);
     }
-    if (!apiDate && data && data.Released && data.Released !== "N/A") {
-      apiDate = parseSafeLocalDate(data.Released);
-    }
-    if (!apiDate && rtData && rtData.theatersDateStr) {
-      apiDate = parseSafeLocalDate(rtData.theatersDateStr);
-    }
-    if (!apiDate && rtData && rtData.vodDateStr) {
-      apiDate = parseSafeLocalDate(rtData.vodDateStr);
+    if (!apiDate) {
+      const releaseCands = [];
+      if (data && data.Released && data.Released !== "N/A") releaseCands.push(data.Released);
+      if (rtData && rtData.theatersDateStr) releaseCands.push(rtData.theatersDateStr);
+      if (rtData && rtData.vodDateStr) releaseCands.push(rtData.vodDateStr);
+      const minFloor = isToBeReleased ? sixMonthsAgo : null;
+      const pickedRel = pickEarliestDate(releaseCands, minFloor, searchYear);
+      if (pickedRel) apiDate = pickedRel.date;
     }
 
     if (apiDate instanceof Date && apiDate.getFullYear() === 1905) {
@@ -1547,13 +1574,26 @@ function updateMovieData(sheet, rowNum, titleText, options) {
 
     const hasValidDate = finalDate instanceof Date && !isNaN(finalDate.getTime());
 
-    // Resolve VOD Date (for non-Netflix theatrical movies)
-    let vodDateStr = (!isNetflix && rtData) ? rtData.vodDateStr : null;
-    if (!isNetflix && !vodDateStr && hasValidDate && !isYearOnly && finalDate <= today && finalDate > sixMonthsAgo) {
-      const vodCal = fetchDigitalReleaseCalendarMap();
-      vodDateStr = (matchedImdbId && vodCal.byImdb[matchedImdbId]) || vodCal.byTitle[normalizeForCompare(cleanTitle)] || null;
+    // Resolve VOD Date (for non-Netflix theatrical movies):
+    // Always pick the FIRST chronological date across DVDsReleaseDates (paid PVOD), RT Streaming, and existing Note
+    let vodDateStr = null;
+    let vodDateObj = null;
+    if (!isNetflix) {
+      let calVodStr = null;
+      if (hasValidDate && !isYearOnly && finalDate <= today && finalDate > sixMonthsAgo) {
+        const vodCal = fetchDigitalReleaseCalendarMap();
+        calVodStr = (matchedImdbId && vodCal.byImdb[matchedImdbId]) || vodCal.byTitle[normalizeForCompare(cleanTitle)] || null;
+      }
+      const existingVodObj = extractVodDateFromNote(existingNoteText, fallbackYear || searchYear);
+      const minVodFloor = hasValidDate && !isYearOnly ? finalDate : sixMonthsAgo;
+      const earliestVod =
+        pickEarliestDate([calVodStr, rtData ? rtData.vodDateStr : null], minVodFloor, fallbackYear || searchYear) ||
+        pickEarliestDate([existingVodObj], minVodFloor, fallbackYear || searchYear);
+      if (earliestVod) {
+        vodDateObj = earliestVod.date;
+        vodDateStr = earliestVod.formatted;
+      }
     }
-    const vodDateObj = isNetflix ? null : ((vodDateStr ? parseSafeLocalDate(vodDateStr) : null) || extractVodDateFromNote(existingNoteText));
 
     // Determine primary genre from OMDb or Rotten Tomatoes, with "Time Travel" override if movie involves time travel
     let primaryGenre = null;
@@ -1937,17 +1977,22 @@ function parseRtMoviePageHtml(pageHtml, chosen) {
   }
 
   // Extract Release Date (Streaming) -> VOD Date
+  // IMPORTANT: Keep the ", YYYY" year intact! Only strip trailing release-type qualifiers if present.
   let vodDateStr = null;
   const vodMatch = pageHtml.match(/Release Date \(Streaming\)<\/rt-text>\s*<\/dt>\s*<dd[^>]*>\s*<rt-text[^>]*>([^<]+)<\/rt-text>/i);
   if (vodMatch) {
-    vodDateStr = vodMatch[1].replace(/,.*$/, "").trim();
+    let rawVod = vodMatch[1].replace(/,\s*(Wide|Limited|Original|Streaming|Digital|VOD).*$/i, "").trim();
+    const parsedVod = parseSafeLocalDate(rawVod, chosen.year);
+    vodDateStr = parsedVod ? formatShortDate(parsedVod) : rawVod;
   }
 
   // Extract Release Date (Theaters)
   let theatersDateStr = null;
   const theatersMatch = pageHtml.match(/Release Date \(Theaters\)<\/rt-text>\s*<\/dt>\s*<dd[^>]*>\s*<rt-text[^>]*>([^<]+)<\/rt-text>/i);
   if (theatersMatch) {
-    theatersDateStr = theatersMatch[1].replace(/,\s*(Wide|Limited|Original).*$/i, "").trim();
+    let rawTheaters = theatersMatch[1].replace(/,\s*(Wide|Limited|Original).*$/i, "").trim();
+    const parsedTheaters = parseSafeLocalDate(rawTheaters, chosen.year);
+    theatersDateStr = parsedTheaters ? formatShortDate(parsedTheaters) : rawTheaters;
   }
 
   // Extract Genre from <script id="media-hero-json">
@@ -2164,9 +2209,7 @@ function parseDvdReleaseDatesHtml(html, byImdb, byTitle) {
 
     const rawDateHeader = sec.substring(0, dateEndIdx).replace(/^(Monday|Tuesday|Wednesday|Friday|Saturday|Sunday|Thursday)\s+/i, "").trim();
     const parsedDate = parseSafeLocalDate(rawDateHeader);
-    const formattedDate = parsedDate
-      ? Utilities.formatDate(parsedDate, Session.getScriptTimeZone() || "America/New_York", "MMM d, yyyy")
-      : rawDateHeader;
+    const formattedDate = parsedDate ? formatShortDate(parsedDate) : rawDateHeader;
 
     const cells = sec.split(/<td class=['"]dvdcell['"]>/i);
     for (let c = 1; c < cells.length; c++) {
@@ -2174,12 +2217,23 @@ function parseDvdReleaseDatesHtml(html, byImdb, byTitle) {
       const imdbMatch = cellHtml.match(/imdb\.com\/title\/(tt\d+)/i);
       const titleMatch = cellHtml.match(/<a style=['"]color:#000;['"] href=['"]\/movies\/\d+\/[^'"]+['"]>([^<]+)<\/a>/i);
 
+      // If a movie appears multiple times (e.g. paid PVOD date and later disc/streaming date),
+      // always keep the FIRST chronological date!
       if (imdbMatch) {
-        byImdb[imdbMatch[1].toLowerCase()] = formattedDate;
+        const idKey = imdbMatch[1].toLowerCase();
+        const prev = byImdb[idKey] ? parseSafeLocalDate(byImdb[idKey]) : null;
+        if (!prev || (parsedDate && parsedDate < prev)) {
+          byImdb[idKey] = formattedDate;
+        }
       }
       if (titleMatch) {
         const norm = normalizeForCompare(decodeHtmlEntities(titleMatch[1]));
-        if (norm) byTitle[norm] = formattedDate;
+        if (norm) {
+          const prev = byTitle[norm] ? parseSafeLocalDate(byTitle[norm]) : null;
+          if (!prev || (parsedDate && parsedDate < prev)) {
+            byTitle[norm] = formattedDate;
+          }
+        }
       }
     }
   }
@@ -2454,12 +2508,17 @@ function checkAndFormatSheet(sheet) {
       }
     }
 
+    const refYear = hasValidDate ? d.getFullYear() : today.getFullYear();
+    const vodDate = isNetflix ? null : extractVodDateFromNote(noteText, refYear);
+    if (vodDate) {
+      noteText = upsertVodNote(noteText, formatShortDate(vodDate));
+    }
+
     if (cat === "in theaters") {
       if (isNetflix) {
         rows[i].data[1] = "New Releases";
         cat = "new releases";
       } else {
-        const vodDate = extractVodDateFromNote(noteText);
         if (vodDate && vodDate <= today) {
           rows[i].data[1] = "New Releases";
           cat = "new releases";
@@ -2468,6 +2527,11 @@ function checkAndFormatSheet(sheet) {
           cat = "new releases";
         }
       }
+    } else if (cat === "new releases" && !isNetflix && vodDate && vodDate > today && hasValidDate && d <= today && d > sixtyDaysAgo) {
+      // Self-heal: if a movie was prematurely moved to "New Releases" (e.g. from a yearless "VOD: Nov 24" note),
+      // move it back to "In Theaters" until its VOD date actually arrives!
+      rows[i].data[1] = "In Theaters";
+      cat = "in theaters";
     }
 
     // Maintain "Release Date Unannounced" in Notes (Column F):
@@ -3182,11 +3246,38 @@ function upsertVodNote(existingNote, vodDateStr) {
   return `${existingNote} | ${tag}`;
 }
 
-function extractVodDateFromNote(noteText) {
+function extractVodDateFromNote(noteText, referenceYear) {
   if (!noteText) return null;
   const match = String(noteText).match(/VOD:\s*([^|\n]+)/i);
   if (!match) return null;
-  return parseSafeLocalDate(match[1].trim());
+  return parseSafeLocalDate(match[1].trim(), referenceYear);
+}
+
+function formatShortDate(dateObj) {
+  if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[dateObj.getMonth()]} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+}
+
+/**
+ * Given an array of candidate dates (strings or Date objects), returns `{ date, formatted }`
+ * for the FIRST (earliest chronological) valid date that is >= minValidDate (if specified)
+ * and not a 12/31 unannounced placeholder.
+ */
+function pickEarliestDate(candidates, minValidDate, referenceYear) {
+  if (!candidates || candidates.length === 0) return null;
+  let bestDate = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const raw = candidates[i];
+    if (!raw) continue;
+    const d = (raw instanceof Date) ? raw : parseSafeLocalDate(raw, referenceYear);
+    if (!d || isNaN(d.getTime()) || isDec31Date(d)) continue;
+    if (minValidDate instanceof Date && !isNaN(minValidDate.getTime()) && d < minValidDate) continue;
+    if (!bestDate || d.getTime() < bestDate.getTime()) {
+      bestDate = d;
+    }
+  }
+  return bestDate ? { date: bestDate, formatted: formatShortDate(bestDate) } : null;
 }
 
 function getSixMonthsAgo(today) {
@@ -3255,9 +3346,9 @@ function normalizeForCompare(str) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function parseSafeLocalDate(dateStr) {
+function parseSafeLocalDate(dateStr, referenceYear) {
   if (!dateStr || dateStr === "N/A") return null;
-  const s = String(dateStr).trim();
+  let s = String(dateStr).trim();
   const yearOnly = s.match(/^(\d{4})$/);
   if (yearOnly) {
     const y = parseInt(yearOnly[1], 10);
@@ -3267,6 +3358,12 @@ function parseSafeLocalDate(dateStr) {
   const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoMatch) {
     return new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
+  }
+  // If a month+day string like "Nov 24" is missing a 4-digit year, append referenceYear (or current year)
+  // so V8 never defaults it to the year 2001!
+  if (!/\b(19|20)\d{2}\b/.test(s) && /^[A-Za-z]+\.?\s+\d{1,2}$/.test(s)) {
+    const refY = referenceYear || (new Date()).getFullYear();
+    s = `${s}, ${refY}`;
   }
   const d = new Date(s);
   if (isNaN(d.getTime())) return null;
