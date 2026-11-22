@@ -1140,8 +1140,11 @@ function dailyVodAndActiveMoviesCheck() {
       // (delays to a later date/year, or moving earlier) are picked up automatically.
       const imdbId = extractImdbId(formulas[i][0], richText[i][0]);
       const rtData = fetchRottenTomatoesData(cleanTitle, searchYear);
+      const wdStream = (!rtData || (!rtData.isNetflix && !rtData.isStreamingFirst)) && imdbId
+        ? fetchWikidataStreamingInfo(imdbId)
+        : null;
 
-      if (rtData && rtData.isNetflix) {
+      if ((rtData && rtData.isNetflix) || (wdStream && wdStream.isNetflix)) {
         const withNetflix = upsertNetflixNote(workingNoteText);
         if (withNetflix !== workingNoteText) {
           workingNoteText = withNetflix;
@@ -1220,10 +1223,28 @@ function dailyVodAndActiveMoviesCheck() {
         writeRtScoreCell(sheet.getRange(i + 1, 4), rtData.popcornmeter, rtData.url);
       }
 
+      const wdStream = (!rtData || (!rtData.isNetflix && !rtData.isStreamingFirst)) && imdbId
+        ? fetchWikidataStreamingInfo(imdbId)
+        : null;
+      const isNetflix = Boolean(
+        (rtData && rtData.isNetflix) ||
+        (wdStream && wdStream.isNetflix) ||
+        isNetflixNote(existingNoteText)
+      );
+      const isStreamingFirst = Boolean(
+        isNetflix ||
+        (rtData && rtData.isStreamingFirst) ||
+        (wdStream && wdStream.isStreamingFirst) ||
+        isStreamingPlatformText(existingNoteText)
+      );
+
       // Confirm/update Column C theatrical release date if RT has an earlier or updated theatrical date
       let effectiveReleaseDate = hasValidDate ? existingDate : null;
-      if (rtData && rtData.theatersDateStr) {
-        const parsedTheaters = parseSafeLocalDate(rtData.theatersDateStr, searchYear);
+      if (rtData && (rtData.theatersDateStr || (isStreamingFirst && rtData.vodDateStr))) {
+        const candidateRelStr = (isStreamingFirst && rtData.vodDateStr && !rtData.theatersDateStr)
+          ? rtData.vodDateStr
+          : rtData.theatersDateStr;
+        const parsedTheaters = candidateRelStr ? parseSafeLocalDate(candidateRelStr, searchYear) : null;
         if (parsedTheaters && !isNaN(parsedTheaters.getTime()) && parsedTheaters > sixMonthsAgo) {
           if (!effectiveReleaseDate || (category === "in theaters" && parsedTheaters.getTime() !== effectiveReleaseDate.getTime())) {
             effectiveReleaseDate = parsedTheaters;
@@ -1235,22 +1256,34 @@ function dailyVodAndActiveMoviesCheck() {
         }
       }
 
-      // If theatrical release date was delayed into the future, demote back to "To be released"
+      // If release date was delayed into the future, demote back to "To be released"
       if (effectiveReleaseDate && effectiveReleaseDate > today) {
         sheet.getRange(i + 1, 2).setValue("To be released");
         Utilities.sleep(120);
         continue;
       }
 
-      if ((rtData && rtData.isNetflix) || isNetflixNote(existingNoteText)) {
+      if (isNetflix) {
         const updatedNoteText = upsertNetflixNote(existingNoteText);
         if (updatedNoteText !== existingNoteText) {
           sheet.getRange(i + 1, notesCol).setValue(updatedNoteText);
           vodUpdates++;
         }
-        // Netflix exclusives go directly to streaming -> move to "New Releases"
+      }
+
+      if (isStreamingFirst) {
+        // Streaming-first titles (Netflix, streaming originals, limited series, or RT Streaming-only releases)
+        // go straight to "New Releases" instead of "In Theaters"!
+        if (!isNetflix && rtData && rtData.vodDateStr) {
+          const updatedNoteText = upsertVodNote(existingNoteText, rtData.vodDateStr);
+          if (updatedNoteText !== existingNoteText) {
+            sheet.getRange(i + 1, notesCol).setValue(updatedNoteText);
+            vodUpdates++;
+          }
+        }
         if (category !== "new releases" && (!effectiveReleaseDate || effectiveReleaseDate <= today)) {
           sheet.getRange(i + 1, 2).setValue("New Releases");
+          vodUpdates++;
         }
       } else {
         // Always pick the FIRST chronological VOD/Digital date across DVDsReleaseDates (paid PVOD)
@@ -1510,11 +1543,24 @@ function updateMovieData(sheet, rowNum, titleText, options) {
       titleCell.setFormula(`=HYPERLINK("https://www.imdb.com/title/${matchedImdbId}/", "${safeTitle}")`);
     }
 
-    // Detect whether the movie is a Netflix exclusive (via Rotten Tomatoes, OMDb Production, or existing Notes)
+    // Detect whether the title is a Netflix exclusive or streaming-first release
+    const wdStream = (!rtData || (!rtData.isNetflix && !rtData.isStreamingFirst)) && matchedImdbId
+      ? fetchWikidataStreamingInfo(matchedImdbId)
+      : null;
+
     const isNetflix = Boolean(
       (rtData && rtData.isNetflix) ||
+      (wdStream && wdStream.isNetflix) ||
       (data && data.Production && /\bnetflix\b/i.test(data.Production)) ||
       isNetflixNote(existingNoteText)
+    );
+
+    const isStreamingFirst = Boolean(
+      isNetflix ||
+      (rtData && rtData.isStreamingFirst) ||
+      (wdStream && wdStream.isStreamingFirst) ||
+      (data && String(data.Type || "").toLowerCase() === "series") ||
+      isStreamingPlatformText(existingNoteText)
     );
 
     // 5. Determine Release Date:
@@ -1619,9 +1665,10 @@ function updateMovieData(sheet, rowNum, titleText, options) {
         finalCategory = "To be released";
       } else if (finalDate <= today && finalDate > sixMonthsAgo && !isYearOnly) {
         // Transition rules between "In Theaters" and "New Releases":
-        // - Netflix exclusives go directly to streaming -> "New Releases" (skipping "In Theaters")
+        // - Streaming-first titles (Netflix, streaming originals, limited series, or RT Streaming-only releases)
+        //   go directly to "New Releases" (skipping "In Theaters")
         // - Theatrical movies transition from "In Theaters" to "New Releases" once VOD arrives (or after 60 days)
-        if (isNetflix) {
+        if (isStreamingFirst) {
           finalCategory = "New Releases";
         } else if (vodDateObj) {
           finalCategory = vodDateObj <= today ? "New Releases" : "In Theaters";
@@ -1870,20 +1917,22 @@ function selectRtCandidates(searchHtml, rawTitleInput, targetYear) {
   while ((match = rowRegex.exec(searchHtml)) !== null) {
     const fullRow = match[0];
     const block = match[1];
-    const hrefMatch = block.match(/href="(https:\/\/www\.rottentomatoes\.com\/m\/[^"]+)"/i);
-    if (!hrefMatch) continue; // Only movie (/m/) links
+    const hrefMatch = block.match(/href="(https:\/\/www\.rottentomatoes\.com\/(?:m|tv)\/[^"]+)"/i);
+    if (!hrefMatch) continue; // Movie (/m/) or Limited Series (/tv/) links
 
     const yearMatch = fullRow.match(/release-year="(\d{4})"/i) || fullRow.match(/releaseyear="(\d{4})"/i);
     const nameMatch = block.match(/data-qa="info-name"[^>]*>([\s\S]*?)<\/a>/i);
     const candTitle = nameMatch ? decodeHtmlEntities(nameMatch[1].replace(/<[^>]+>/g, "").trim()) : "";
     const candYear = yearMatch ? parseInt(yearMatch[1], 10) : null;
     const hasScore = /tomatometer-score="\d+"/i.test(fullRow) || /audiencescore="\d+"/i.test(fullRow);
+    const isTv = /rottentomatoes\.com\/tv\//i.test(hrefMatch[1]);
 
     candidates.push({
       title: candTitle,
       year: candYear,
       url: hrefMatch[1],
       hasScore: hasScore,
+      isTv: isTv,
       orderIdx: orderIdx++
     });
   }
@@ -1907,6 +1956,9 @@ function selectRtCandidates(searchHtml, rawTitleInput, targetYear) {
     const yearDiff = (numYear && c.year) ? Math.abs(c.year - numYear) : null;
     const withinOneYear = (yearDiff !== null && yearDiff <= 1);
 
+    // Reject non-exact-title candidates whose year is off by >2 years (e.g. prevents 2026 "The Altruists" matching 2004 "The Altruist")
+    if (numYear && c.year && yearDiff > 2 && !isExactTitle) continue;
+
     let tier = 50;
     if (numYear) {
       if (isExactTitle && withinOneYear) {
@@ -1915,6 +1967,9 @@ function selectRtCandidates(searchHtml, rawTitleInput, targetYear) {
         else if (c.hasScore && yearDiff === 1) tier = 2;
         else if (yearDiff === 0) tier = 3;
         else tier = 4;
+      } else if (isExactTitle && !c.year) {
+        // Exact title match without a year attribute on search row (common for /tv/ entries like "The Altruists")
+        tier = c.hasScore ? 7 : 8;
       } else if (isExactTitle) {
         tier = c.hasScore ? 10 : 11;
       } else if (withinOneYear) {
@@ -2024,11 +2079,17 @@ function parseRtMoviePageHtml(pageHtml, chosen) {
     }
   }
 
-  // Extract Distributor & Production Co to detect Netflix exclusives
+  // Extract Distributor, Network & Production Co to detect Netflix exclusives and streaming-first titles
   let distributor = null;
   const distMatch = pageHtml.match(/Distributor<\/rt-text>\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/i);
   if (distMatch) {
     distributor = decodeHtmlEntities(distMatch[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+  }
+
+  let network = null;
+  const netMatch = pageHtml.match(/Network<\/rt-text>\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/i);
+  if (netMatch) {
+    network = decodeHtmlEntities(netMatch[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   }
 
   let productionCo = null;
@@ -2039,7 +2100,25 @@ function parseRtMoviePageHtml(pageHtml, chosen) {
 
   const isNetflix = Boolean(
     (distributor && /\bnetflix\b/i.test(distributor)) ||
-    (!distributor && productionCo && /\bnetflix\b/i.test(productionCo))
+    (network && /\bnetflix\b/i.test(network)) ||
+    (!distributor && !network && productionCo && /\bnetflix\b/i.test(productionCo))
+  );
+
+  const isTvUrl = /rottentomatoes\.com\/tv\//i.test(String(chosen.url || ""));
+  const parsedVodObj = vodDateStr ? parseSafeLocalDate(vodDateStr, chosen.year) : null;
+  const parsedTheatersObj = theatersDateStr ? parseSafeLocalDate(theatersDateStr, chosen.year) : null;
+
+  // A title is streaming-first if:
+  // - It is a Netflix exclusive or TV/limited series (/tv/)
+  // - RT lists a Streaming release date and NO Theatrical release date
+  // - RT's Streaming release date is on or before its Theatrical release date (day-and-date / streaming first)
+  // - Its Distributor/Network is a streaming service and it has no Theatrical release date
+  const isStreamingFirst = Boolean(
+    isNetflix ||
+    isTvUrl ||
+    (vodDateStr && !theatersDateStr) ||
+    (parsedVodObj && parsedTheatersObj && parsedVodObj.getTime() <= parsedTheatersObj.getTime()) ||
+    (!theatersDateStr && (isStreamingPlatformText(distributor) || isStreamingPlatformText(network)))
   );
 
   return {
@@ -2052,20 +2131,21 @@ function parseRtMoviePageHtml(pageHtml, chosen) {
     theatersDateStr: theatersDateStr,
     genre: genre,
     synopsis: synopsis,
-    distributor: distributor,
-    isNetflix: isNetflix
+    distributor: distributor || network,
+    isNetflix: isNetflix,
+    isStreamingFirst: isStreamingFirst
   };
 }
 
 function extractRtUrlFromFormula(formulaVal) {
   if (!formulaVal) return null;
-  const m = String(formulaVal).match(/https?:\/\/(?:www\.)?rottentomatoes\.com\/m\/[^"'?#\s)]+/i);
+  const m = String(formulaVal).match(/https?:\/\/(?:www\.)?rottentomatoes\.com\/(?:m|tv)\/[^"'?#\s)]+/i);
   return m ? m[0] : null;
 }
 
 function doesRtSlugMatchTitle(rtUrl, title) {
   if (!rtUrl || !title) return false;
-  const m = String(rtUrl).match(/rottentomatoes\.com\/m\/([^"'?#\s/)]+)/i);
+  const m = String(rtUrl).match(/rottentomatoes\.com\/(?:m|tv)\/([^"'?#\s/)]+)/i);
   if (!m) return false;
 
   // Strip optional leading numeric ID (e.g. "1000013-12_angry_men") and optional trailing year (e.g. "_2024")
@@ -2488,24 +2568,12 @@ function checkAndFormatSheet(sheet) {
     const hasValidDate = d instanceof Date && !isNaN(d.getTime());
     let noteText = String(rows[i].data[notesColIdx] || "");
     const isNetflix = isNetflixNote(noteText);
+    const isStreamingNote = isNetflix || isStreamingPlatformText(noteText);
     const isUnannouncedDate = isYearOnly || !hasValidDate || isDec31Date(d);
 
     // If marked Netflix in Notes, ensure any old "VOD: ..." mention is replaced by "Netflix"
     if (isNetflix) {
       noteText = upsertNetflixNote(noteText);
-    }
-
-    // Only promote from "To be released" if it has an exact announced release date (not year-only or 12/31 placeholder):
-    // - Netflix exclusives go directly to "New Releases" (skipping "In Theaters")
-    // - Theatrical movies go to "In Theaters"
-    if (cat === "to be released" && hasValidDate && !isUnannouncedDate && d <= today) {
-      if (isNetflix) {
-        rows[i].data[1] = "New Releases";
-        cat = "new releases";
-      } else {
-        rows[i].data[1] = "In Theaters";
-        cat = "in theaters";
-      }
     }
 
     const refYear = hasValidDate ? d.getFullYear() : today.getFullYear();
@@ -2514,21 +2582,34 @@ function checkAndFormatSheet(sheet) {
       noteText = upsertVodNote(noteText, formatShortDate(vodDate));
     }
 
-    if (cat === "in theaters") {
-      if (isNetflix) {
+    // Streaming-first detection in checkAndFormatSheet:
+    // - Marked Netflix or streaming platform in Notes, OR
+    // - Has a VOD date in Notes that is <= Release Date (day-and-date / direct-to-VOD) or <= today
+    const isDirectToStreaming = isStreamingNote || Boolean(vodDate && ((hasValidDate && vodDate <= d) || vodDate <= today));
+
+    // Only promote from "To be released" if it has an exact announced release date (not year-only or 12/31 placeholder):
+    // - Streaming-first titles (Netflix, streaming platforms, or VOD date <= today) go directly to "New Releases"
+    // - Theatrical movies go to "In Theaters"
+    if (cat === "to be released" && hasValidDate && !isUnannouncedDate && d <= today) {
+      if (isDirectToStreaming) {
         rows[i].data[1] = "New Releases";
         cat = "new releases";
       } else {
-        if (vodDate && vodDate <= today) {
-          rows[i].data[1] = "New Releases";
-          cat = "new releases";
-        } else if (!vodDate && hasValidDate && !isYearOnly && d <= sixtyDaysAgo) {
-          rows[i].data[1] = "New Releases";
-          cat = "new releases";
-        }
+        rows[i].data[1] = "In Theaters";
+        cat = "in theaters";
       }
-    } else if (cat === "new releases" && !isNetflix && vodDate && vodDate > today && hasValidDate && d <= today && d > sixtyDaysAgo) {
-      // Self-heal: if a movie was prematurely moved to "New Releases" (e.g. from a yearless "VOD: Nov 24" note),
+    }
+
+    if (cat === "in theaters") {
+      if (isDirectToStreaming) {
+        rows[i].data[1] = "New Releases";
+        cat = "new releases";
+      } else if (!vodDate && hasValidDate && !isYearOnly && d <= sixtyDaysAgo) {
+        rows[i].data[1] = "New Releases";
+        cat = "new releases";
+      }
+    } else if (cat === "new releases" && !isDirectToStreaming && vodDate && vodDate > today && hasValidDate && d <= today && d > sixtyDaysAgo) {
+      // Self-heal: if a theatrical movie was prematurely moved to "New Releases" while its VOD date is still in the future,
       // move it back to "In Theaters" until its VOD date actually arrives!
       rows[i].data[1] = "In Theaters";
       cat = "in theaters";
@@ -2769,27 +2850,28 @@ function appendRowsToHistory(historyRows) {
   if (!historyRows || historyRows.length === 0) return;
   const targetSheet = getOrCreateHistorySheet();
 
-  // Ensure Row 1 exists and there is at least a Row 2 so we can "Insert row above" from Row 2
+  // Ensure Row 1 header exists
   if (targetSheet.getLastRow() === 0) {
     targetSheet.getRange(1, 1, 1, 2).setValues([["Movie", "Watch Date"]]);
   }
-  if (targetSheet.getMaxRows() < 2) {
-    targetSheet.insertRowsAfter(1, 1);
-    targetSheet.getRange(2, 1, 1, Math.max(2, targetSheet.getLastColumn())).clearFormat();
-  }
 
-  // Insert new row(s) ABOVE Row 2 (inherits Row 2's plain formatting instead of Row 1's header formatting!)
-  targetSheet.insertRowsBefore(2, historyRows.length);
-  const insertedRange = targetSheet.getRange(2, 1, historyRows.length, 2);
-  insertedRange.setFontWeight("normal").setBackground(null);
-  insertedRange.setValues(historyRows);
-  targetSheet.getRange(2, 2, historyRows.length, 1).setNumberFormat("MMMM d, yyyy");
+  // SAFE APPEND-AT-BOTTOM PATH:
+  // Always append new History rows to the first empty row at the bottom of the History tab,
+  // then call sortHistorySheet() to sort them up to Row 2 (newest watch date top-to-bottom).
+  // This avoids both top-row direct-write overwrites and inheriting Row 1's header formatting!
+  const bottomRow = findBottomMovieRow(targetSheet, 2);
+  const startRow = Math.max(2, bottomRow + 1);
 
-  // Always keep the History tab sorted newest watch date top-to-bottom
-  sortHistorySheet(targetSheet);
+  const writeRange = targetSheet.getRange(startRow, 1, historyRows.length, 2);
+  writeRange.setFontWeight("normal").setBackground(null);
+  writeRange.setValues(historyRows);
+  targetSheet.getRange(startRow, 2, historyRows.length, 1).setNumberFormat("MMMM d, yyyy");
+
+  // Immediately sort History newest watch date top-to-bottom (giving newly appended bottom rows priority on same-date ties so they land at Row 2)
+  sortHistorySheet(targetSheet, startRow);
 }
 
-function sortHistorySheet(historySheet) {
+function sortHistorySheet(historySheet, newlyAppendedStartRow) {
   if (!historySheet || typeof historySheet.getLastRow !== "function") {
     historySheet = null;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2815,6 +2897,7 @@ function sortHistorySheet(historySheet) {
 
   const rows = [];
   for (let r = 0; r < numDataRows; r++) {
+    const sheetRowNum = r + 2;
     const hasContent = values[r].some(c => String(c || "").trim() !== "") || Boolean(formulas[r][0]);
     if (!hasContent) continue;
 
@@ -2858,18 +2941,25 @@ function sortHistorySheet(historySheet) {
       }
     }
 
+    // If a row was just appended at the bottom (either by appendRowsToHistory or by an external tool/user at the bottom row),
+    // mark it so that on same-date ties it sorts to the very top (Row 2) of that date group!
+    const isNewlyAppended = (typeof newlyAppendedStartRow === "number" && sheetRowNum >= newlyAppendedStartRow) ||
+      (r === numDataRows - 1 && numDataRows > 1 && rows.length > 0 && parsedTime >= rows[0].time);
+
     rows.push({
       data: rowData,
       time: parsedTime,
+      isNewlyAppended: isNewlyAppended,
       origIdx: r
     });
   }
 
   if (rows.length === 0) return;
 
-  // Sort newest watch date to oldest (top to bottom); preserve top-to-bottom order on ties
+  // Sort newest watch date to oldest (top to bottom); put newly appended rows first on same-date ties
   rows.sort((a, b) => {
     if (a.time !== b.time) return b.time - a.time;
+    if (a.isNewlyAppended !== b.isNewlyAppended) return a.isNewlyAppended ? -1 : 1;
     return a.origIdx - b.origIdx;
   });
 
@@ -3024,6 +3114,72 @@ function findNotesColumn(sheet) {
 
 function isNetflixNote(noteText) {
   return /\bnetflix\b/i.test(String(noteText || ""));
+}
+
+function isStreamingPlatformText(text) {
+  if (!text) return false;
+  return /\b(netflix|prime\s+video|apple\s+tv\+|apple\s+original\s+films|hulu|disney\+|peacock|paramount\+|hbo\s+max|max\s+original|tubi|roku|shudder|mubi|direct[\s-]+to[\s-]+streaming|streaming\s+exclusive)\b/i.test(String(text));
+}
+
+function fetchWikidataStreamingInfo(imdbId) {
+  const cleanId = String(imdbId || "").trim().toLowerCase();
+  if (!/^tt\d+$/.test(cleanId)) return null;
+
+  let cache = null;
+  try {
+    cache = CacheService.getScriptCache();
+  } catch (e) {}
+
+  const cacheKey = `wd_plat_${cleanId}`;
+  if (cache) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try { return JSON.parse(cached); } catch (e) {}
+    }
+  }
+
+  const sparql = `SELECT ?distLabel ?netLabel ?typeLabel WHERE {
+    ?item wdt:P345 "${cleanId}" .
+    OPTIONAL { ?item wdt:P750 ?dist . ?dist rdfs:label ?distLabel FILTER(LANG(?distLabel)="en") }
+    OPTIONAL { ?item wdt:P449 ?net . ?net rdfs:label ?netLabel FILTER(LANG(?netLabel)="en") }
+    OPTIONAL { ?item wdt:P31 ?type . ?type rdfs:label ?typeLabel FILTER(LANG(?typeLabel)="en") }
+  } LIMIT 10`;
+
+  const info = { isNetflix: false, isStreamingFirst: false, platform: "" };
+  try {
+    const wdUrl = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`;
+    const wdRes = UrlFetchApp.fetch(wdUrl, {
+      muteHttpExceptions: true,
+      headers: {
+        "User-Agent": "MovieTrackerSpreadsheet/1.0 (GoogleAppsScript)",
+        "Accept": "application/sparql-results+json"
+      }
+    });
+    if (wdRes && wdRes.getResponseCode() === 200) {
+      const wdJson = JSON.parse(wdRes.getContentText());
+      const bindings = (wdJson && wdJson.results && wdJson.results.bindings) || [];
+      for (let i = 0; i < bindings.length; i++) {
+        const b = bindings[i];
+        const dist = (b.distLabel && b.distLabel.value) || "";
+        const net = (b.netLabel && b.netLabel.value) || "";
+        const typ = (b.typeLabel && b.typeLabel.value) || "";
+        const combined = `${dist} | ${net}`;
+        if (/\bnetflix\b/i.test(combined)) {
+          info.isNetflix = true;
+          info.isStreamingFirst = true;
+          info.platform = "Netflix";
+        } else if (isStreamingPlatformText(combined) || /\b(television\s+series|miniseries)\b/i.test(typ)) {
+          info.isStreamingFirst = true;
+          if (!info.platform) info.platform = dist || net;
+        }
+      }
+    }
+  } catch (e) {}
+
+  if (cache) {
+    try { cache.put(cacheKey, JSON.stringify(info), 21600); } catch (e) {}
+  }
+  return info;
 }
 
 function isTimeTravelText(text) {
