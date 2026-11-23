@@ -1273,16 +1273,13 @@ function dailyVodAndActiveMoviesCheck() {
 
       if (isStreamingFirst) {
         // Streaming-first titles (Netflix, streaming originals, limited series, or RT Streaming-only releases)
-        // go straight to "New Releases" instead of "In Theaters"!
-        if (!isNetflix && rtData && rtData.vodDateStr) {
-          const updatedNoteText = upsertVodNote(existingNoteText, rtData.vodDateStr);
-          if (updatedNoteText !== existingNoteText) {
-            sheet.getRange(i + 1, notesCol).setValue(updatedNoteText);
-            vodUpdates++;
-          }
-        }
+        // go straight to "New Releases" instead of "In Theaters" (and don't need a VOD note).
         if (category !== "new releases" && (!effectiveReleaseDate || effectiveReleaseDate <= today)) {
           sheet.getRange(i + 1, 2).setValue("New Releases");
+          vodUpdates++;
+        }
+        if (!isNetflix && /\bVOD:\s*/i.test(existingNoteText)) {
+          sheet.getRange(i + 1, notesCol).setValue(removeVodNote(existingNoteText));
           vodUpdates++;
         }
       } else {
@@ -1295,18 +1292,29 @@ function dailyVodAndActiveMoviesCheck() {
           pickEarliestDate([existingVodObj], minVodFloor, searchYear);
 
         if (earliestVod) {
-          const updatedNoteText = upsertVodNote(existingNoteText, earliestVod.formatted);
-          if (updatedNoteText !== existingNoteText) {
-            sheet.getRange(i + 1, notesCol).setValue(updatedNoteText);
-            vodUpdates++;
-          }
-          if (earliestVod.date <= today && category === "in theaters") {
-            sheet.getRange(i + 1, 2).setValue("New Releases");
-          } else if (earliestVod.date > today && category === "new releases") {
-            // Self-heal: if a movie was prematurely placed in "New Releases" while its VOD date is still in the future,
-            // return it to "In Theaters"!
-            sheet.getRange(i + 1, 2).setValue("In Theaters");
-            vodUpdates++;
+          if (earliestVod.date <= today) {
+            if (category === "in theaters") {
+              sheet.getRange(i + 1, 2).setValue("New Releases");
+              vodUpdates++;
+            }
+            const cleanedNote = removeVodNote(existingNoteText);
+            if (cleanedNote !== existingNoteText) {
+              sheet.getRange(i + 1, notesCol).setValue(cleanedNote);
+              vodUpdates++;
+            }
+          } else {
+            // Future VOD date: ensure movie is in "In Theaters" and record "VOD: <Date>"
+            if (category === "new releases") {
+              // Self-heal: if a movie was prematurely placed in "New Releases" while its VOD date is still in the future,
+              // return it to "In Theaters"!
+              sheet.getRange(i + 1, 2).setValue("In Theaters");
+              vodUpdates++;
+            }
+            const updatedNoteText = upsertVodNote(existingNoteText, earliestVod.formatted);
+            if (updatedNoteText !== existingNoteText) {
+              sheet.getRange(i + 1, notesCol).setValue(updatedNoteText);
+              vodUpdates++;
+            }
           }
         }
       }
@@ -1713,14 +1721,17 @@ function updateMovieData(sheet, rowNum, titleText, options) {
 
     // 7. Write/Update Notes in Column F:
     //    - If Netflix exclusive -> write "Netflix" (for both upcoming and already released movies, replacing any VOD mention)
-    //    - Otherwise -> write "VOD: <Date>" if in "In Theaters" or "New Releases"
+    //    - If "In Theaters" -> write "VOD: <Date>" when known
+    //    - Otherwise (e.g. "New Releases" or Genre) -> remove any "VOD: ..." note since VOD is only relevant for "In Theaters"
     //    - If "To be released" with an unannounced release date (12/31 placeholder or year-only) -> write "Release Date Unannounced"
     //      until an exact release date is announced (at which point "Release Date Unannounced" is automatically removed)
     let updatedNoteText = existingNoteText;
     if (isNetflix) {
       updatedNoteText = upsertNetflixNote(updatedNoteText);
-    } else if (vodDateStr && (finalCatLower === "in theaters" || finalCatLower === "new releases")) {
+    } else if (vodDateStr && finalCatLower === "in theaters") {
       updatedNoteText = upsertVodNote(updatedNoteText, vodDateStr);
+    } else if (finalCatLower !== "in theaters" && finalCatLower !== "to be released") {
+      updatedNoteText = removeVodNote(updatedNoteText);
     }
 
     const hasAnnouncedExactApiDate = Boolean(apiDate && !isNaN(apiDate.getTime()) && !isDec31Date(apiDate));
@@ -2578,9 +2589,6 @@ function checkAndFormatSheet(sheet) {
 
     const refYear = hasValidDate ? d.getFullYear() : today.getFullYear();
     const vodDate = isNetflix ? null : extractVodDateFromNote(noteText, refYear);
-    if (vodDate) {
-      noteText = upsertVodNote(noteText, formatShortDate(vodDate));
-    }
 
     // Streaming-first detection in checkAndFormatSheet:
     // - Marked Netflix or streaming platform in Notes, OR
@@ -2613,6 +2621,13 @@ function checkAndFormatSheet(sheet) {
       // move it back to "In Theaters" until its VOD date actually arrives!
       rows[i].data[1] = "In Theaters";
       cat = "in theaters";
+    }
+
+    // VOD notes are only relevant for "In Theaters"; remove "VOD: ..." once a movie moves to "New Releases" (or Genre)
+    if (cat === "in theaters" && vodDate) {
+      noteText = upsertVodNote(noteText, formatShortDate(vodDate));
+    } else if (cat !== "in theaters" && cat !== "to be released") {
+      noteText = removeVodNote(noteText);
     }
 
     // Maintain "Release Date Unannounced" in Notes (Column F):
@@ -3400,6 +3415,16 @@ function upsertVodNote(existingNote, vodDateStr) {
     return existingNote.replace(/VOD:\s*[^|\n]+/i, tag);
   }
   return `${existingNote} | ${tag}`;
+}
+
+function removeVodNote(existingNote) {
+  const raw = String(existingNote || "").trim();
+  if (!raw) return "";
+  const parts = raw
+    .split("|")
+    .map(p => p.trim())
+    .filter(p => p && !/^VOD:\s*/i.test(p));
+  return parts.join(" | ");
 }
 
 function extractVodDateFromNote(noteText, referenceYear) {
